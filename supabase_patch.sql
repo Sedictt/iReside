@@ -65,3 +65,7 @@ DROP POLICY IF EXISTS "Landlords can manage their transactions" ON transactions;
 CREATE POLICY "Landlords can manage their transactions" ON transactions
   FOR ALL USING (landlord_id = auth.uid())
   WITH CHECK (landlord_id = auth.uid());
+
+-- PATCH: Add Coordinates to Properties for Map Search
+ALTER TABLE properties ADD COLUMN IF NOT EXISTS lat DOUBLE PRECISION;
+ALTER TABLE properties ADD COLUMN IF NOT EXISTS lng DOUBLE PRECISION;

@@ -244,7 +244,7 @@ export default function LandingPage() {
                 <option>₱10k+</option>
               </select>
             </div>
-            <button className={styles.searchBtn}>Search</button>
+            <Link href="/tenant/search" className={styles.searchBtn}>Search</Link>
           </div>
         </div>
 
@@ -275,7 +275,7 @@ export default function LandingPage() {
           />
         </div>
         <div className={styles.centerCta}>
-          <Link href={tenantCtaHref} className={styles.secondaryBtn}>Browse Available Units</Link>
+          <Link href="/tenant/search" className={styles.secondaryBtn}>Browse Available Units</Link>
         </div>
       </section>
 
@@ -443,21 +443,38 @@ export default function LandingPage() {
 
       {/* 8. Trust & Legitimacy */}
       <section className={styles.trustSection}>
-        <div className={styles.trustContent}>
-          <div className={styles.trustBadge}>
-            <ShieldCheck size={32} />
-          </div>
-          <h2>Trusted & Compliant</h2>
-          <p>Designed for legal dorms, apartments, and boarding houses.</p>
-          <p className={styles.trustLocation}>
-            <MapPin size={16} /> Primarily serving Barangay Marulas, Valenzuela City
-          </p>
-          <div className={styles.trustLogos}>
-            <span>Data Privacy Secured</span>
-            <span>•</span>
-            <span>Verified Listings</span>
-            <span>•</span>
-            <span>24/7 Support</span>
+        <div className={styles.trustContainer}>
+          <div className={styles.trustContent}>
+            <div className={styles.trustHeader}>
+              <div className={styles.trustIconMain}>
+                <ShieldCheck size={28} strokeWidth={2.5} />
+              </div>
+              <div className={styles.trustTexts}>
+                <h2>Trusted & Compliant</h2>
+                <div className={styles.trustMeta}>
+                  <span className={styles.trustLocation}>
+                    <MapPin size={14} /> Valenzuela City
+                  </span>
+                  <span className={styles.trustDot}>•</span>
+                  <span>Legal Dorms & Apartments</span>
+                </div>
+              </div>
+            </div>
+
+            <div className={styles.trustBadges}>
+              <div className={styles.trustBadgeItem}>
+                <CheckCircle2 size={18} className={styles.badgeIcon} />
+                <span>Verified Listings</span>
+              </div>
+              <div className={styles.trustBadgeItem}>
+                <ShieldCheck size={18} className={styles.badgeIcon} />
+                <span>Data Privacy</span>
+              </div>
+              <div className={styles.trustBadgeItem}>
+                <Phone size={18} className={styles.badgeIcon} />
+                <span>24/7 Support</span>
+              </div>
+            </div>
           </div>
         </div>
       </section>
@@ -491,54 +508,101 @@ export default function LandingPage() {
 
       {/* 10. Call to Action */}
       <section className={styles.ctaSection}>
-        <div className={styles.ctaContent}>
-          <h2>Whether you're renting out or moving in — start here.</h2>
-          <div className={styles.customCtaButtons}>
-            <Link href={tenantCtaHref} className={styles.ctaBtnLight}>
-              Find Your Next Home
-            </Link>
-            <Link href={landlordCtaHref} className={styles.ctaBtnOutline}>
-              List & Manage Property
-            </Link>
+        <div className={styles.ctaContainer}>
+          <div className={styles.ctaCard}>
+            <div className={styles.ctaBackground}>
+              <div className={styles.ctaCircle1}></div>
+              <div className={styles.ctaCircle2}></div>
+            </div>
+
+            <div className={styles.ctaContent}>
+              <h2 className={styles.ctaTitle}>
+                Ready to upgrade your <br />
+                <span className={styles.ctaTitleHighlight}>living experience?</span>
+              </h2>
+              <p className={styles.ctaSubtitle}>
+                Join thousands of tenants and landlords creating better rental relationships today.
+              </p>
+
+              <div className={styles.ctaActions}>
+                <Link href={tenantCtaHref} className={styles.ctaBtnPrimary}>
+                  Find Your Next Home
+                  <ArrowRight size={18} />
+                </Link>
+                <Link href={landlordCtaHref} className={styles.ctaBtnSecondary}>
+                  List & Manage Property
+                </Link>
+              </div>
+            </div>
           </div>
         </div>
       </section>
 
       {/* 11. Footer */}
       <footer id="contact" className={styles.footer}>
-        <div className={styles.footerInner}>
-          <div className={styles.footerBrand}>
-            <div className={styles.logo}>
-              <div className={styles.logoIcon}>
-                <Building2 size={20} />
+        <div className={styles.footerContainer}>
+          <div className={styles.footerTop}>
+            <div className={styles.footerBrandCol}>
+              <div className={styles.footerLogo}>
+                <Building2 size={24} className={styles.brandIcon} />
+                <span className={styles.brandName}>TenantPro</span>
               </div>
-              <span className={styles.logoTitle}>TenantPro</span>
+              <p className={styles.brandDesc}>
+                Simplifying property management with intelligent tools for landlords and seamless experiences for tenants.
+              </p>
+              <div className={styles.socialLinks}>
+                <a href="#" className={styles.socialIcon}><FacebookIcon /></a>
+                <a href="#" className={styles.socialIcon}><TwitterIcon /></a>
+                <a href="#" className={styles.socialIcon}><InstagramIcon /></a>
+                <a href="#" className={styles.socialIcon}><LinkedinIcon /></a>
+              </div>
             </div>
-            <p>Simplifying property management for everyone.</p>
+
+            <div className={styles.footerLinksGrid}>
+              <div className={styles.footerGroup}>
+                <h4>Platform</h4>
+                <a href="#browse">Browse Units</a>
+                <a href="#landlord">Landlord Suite</a>
+                <a href="#features">Features</a>
+                <a href="#pricing">Pricing</a>
+              </div>
+              <div className={styles.footerGroup}>
+                <h4>Company</h4>
+                <a href="/about">About Us</a>
+                <a href="/careers">Careers</a>
+                <a href="/blog">Blog</a>
+                <a href="/contact">Contact</a>
+              </div>
+              <div className={styles.footerGroup}>
+                <h4>Legal</h4>
+                <a href="/privacy">Privacy Policy</a>
+                <a href="/terms">Terms of Service</a>
+                <a href="/cookies">Cookie Policy</a>
+              </div>
+            </div>
           </div>
-          <div className={styles.footerLinks}>
-            <div className={styles.footerCol}>
-              <h4>Platform</h4>
-              <a href="#browse">Browse Units</a>
-              <a href="#landlord">For Landlords</a>
-              <a href="#features">Features</a>
+
+          <div className={styles.footerNewsletter}>
+            <div className={styles.newsletterContent}>
+              <h4>Stay up to date</h4>
+              <p>Subscribe to our newsletter for the latest property trends.</p>
             </div>
-            <div className={styles.footerCol}>
-              <h4>Support</h4>
-              <a href="/help">Help Center</a>
-              <a href="/contact">Contact Us</a>
-              <a href="/privacy">Privacy Policy</a>
-            </div>
-            <div className={styles.footerCol}>
-              <h4>Contact</h4>
-              <p>Valenzuela City, Philippines</p>
-              <p>support@tenantpro.com</p>
-              <p>+63 999 999 9999</p>
+            <div className={styles.newsletterForm}>
+              <input type="email" placeholder="Enter your email" />
+              <button>Subscribe</button>
             </div>
           </div>
-        </div>
-        <div className={styles.footerBottom}>
-          <p>&copy; 2026 TenantPro. All rights reserved.</p>
+
+          <div className={styles.footerBottom}>
+            <p>&copy; {new Date().getFullYear()} TenantPro. All rights reserved.</p>
+            <div className={styles.footerBottomLinks}>
+              <a href="#">Privacy</a>
+              <span className={styles.dot}>•</span>
+              <a href="#">Terms</a>
+              <span className={styles.dot}>•</span>
+              <a href="#">Sitemap</a>
+            </div>
+          </div>
         </div>
       </footer>
     </main>
@@ -592,5 +656,29 @@ function ListingCard({ image, title, location, price, type, tags }: any) {
 function DollarSignIcon() {
   return (
     <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="lucide lucide-dollar-sign"><line x1="12" x2="12" y1="2" y2="22" /><path d="M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6" /></svg>
+  )
+}
+
+function FacebookIcon() {
+  return (
+    <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M18 2h-3a5 5 0 0 0-5 5v3H7v4h3v8h4v-8h3l1-4h-4V7a1 1 0 0 1 1-1h3z" /></svg>
+  )
+}
+
+function TwitterIcon() {
+  return (
+    <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M22 4s-.7 2.1-2 3.4c1.6 10-9.4 17.3-18 11.6 2.2.1 4.4-.6 6-2C3 15.5.5 9.6 3 5c2.2 2.6 5.6 4.1 9 4-.9-4.2 4-6.6 7-3.8 1.1 0 3-1.2 3-1.2z" /></svg>
+  )
+}
+
+function InstagramIcon() {
+  return (
+    <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><rect width="20" height="20" x="2" y="2" rx="5" ry="5" /><path d="M16 11.37A4 4 0 1 1 12.63 8 4 4 0 0 1 16 11.37z" /><line x1="17.5" x2="17.51" y1="6.5" y2="6.5" /></svg>
+  )
+}
+
+function LinkedinIcon() {
+  return (
+    <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M16 8a6 6 0 0 1 6 6v7h-4v-7a2 2 0 0 0-2-2 2 2 0 0 0-2 2v7h-4v-7a6 6 0 0 1 6-6z" /><rect width="4" height="12" x="2" y="9" /><circle cx="4" cy="4" r="2" /></svg>
   )
 }
