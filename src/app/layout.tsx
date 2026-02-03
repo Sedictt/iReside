@@ -1,15 +1,18 @@
 import type { Metadata } from "next";
 import "./globals.css";
+import { Rethink_Sans } from "next/font/google";
+import { GeistSans } from "geist/font/sans";
 
 export const metadata: Metadata = {
   title: "Tenant Platform",
   description: "Modern Landlord & Tenant Management Prototype",
 };
 
-import { Inter, Outfit } from "next/font/google";
-
-const inter = Inter({ subsets: ["latin"], variable: "--font-inter" });
-const outfit = Outfit({ subsets: ["latin"], variable: "--font-outfit" });
+const rethinkSans = Rethink_Sans({
+  subsets: ["latin"],
+  variable: "--font-rethink",
+  display: "swap",
+});
 
 export default function RootLayout({
   children,
@@ -18,7 +21,7 @@ export default function RootLayout({
 }>) {
   return (
     <html lang="en">
-      <body className={`${inter.variable} ${outfit.variable}`} suppressHydrationWarning={true}>{children}</body>
+      <body className={`${rethinkSans.variable} ${rethinkSans.className} ${GeistSans.variable}`} suppressHydrationWarning={true}>{children}</body>
     </html>
   );
 }
