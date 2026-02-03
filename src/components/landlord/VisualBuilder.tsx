@@ -2,7 +2,9 @@
 import React, { useState, useRef, useEffect } from 'react';
 import { DndContext, useDraggable, useDroppable, DragEndEvent, DragStartEvent, DragMoveEvent, DragOverlay, useSensor, useSensors, PointerSensor } from '@dnd-kit/core';
 import { createPortal } from 'react-dom';
-import { User, Plus, ArrowUpFromLine } from 'lucide-react';
+import { motion, AnimatePresence } from 'framer-motion';
+
+import { User, Plus, ArrowUpFromLine, Trash2 } from 'lucide-react';
 
 type UnitType = 'studio' | '1br' | '2br' | 'stairs';
 
@@ -46,6 +48,7 @@ export default function VisualBuilder({ propertyId, initialUnits = [] }: { prope
     // Drag State
     const [activeId, setActiveId] = useState<string | null>(null);
     const [activeType, setActiveType] = useState<UnitType | null>(null);
+    const [isDraggingExistingUnit, setIsDraggingExistingUnit] = useState(false); // New state to track if an existing unit is being dragged
     const [ghostState, setGhostState] = useState<{ x: number, y: number, widthCells: number, valid: boolean } | null>(null);
 
     // Viewport State
@@ -92,6 +95,7 @@ export default function VisualBuilder({ propertyId, initialUnits = [] }: { prope
         setActiveId(active.id as string);
 
         let type = active.data.current?.type;
+        const isPreset = active.data.current?.isPreset;
 
         // Fallback 1: Check if it's an existing unit on canvas
         if (!type) {
@@ -104,6 +108,7 @@ export default function VisualBuilder({ propertyId, initialUnits = [] }: { prope
         }
 
         setActiveType(type as UnitType);
+        setIsDraggingExistingUnit(!isPreset); // Set this based on whether it's a preset or existing unit
     };
 
     const handleDragMove = (event: DragMoveEvent) => {
@@ -160,10 +165,24 @@ export default function VisualBuilder({ propertyId, initialUnits = [] }: { prope
         const { active, over } = event;
         setActiveId(null);
         setActiveType(null);
+        setIsDraggingExistingUnit(false); // Reset
         const finalGhost = ghostState;
         setGhostState(null);
 
         if (!finalGhost || !finalGhost.valid || !over) return;
+
+        // DELETE ACTION
+        if (over.id === 'trash-zone' && !active.data.current?.isPreset) {
+            const { error } = await supabase
+                .from('units')
+                .delete()
+                .eq('id', active.id);
+
+            if (!error) {
+                setUnits(prev => prev.filter(u => u.id !== active.id));
+            }
+            return;
+        }
 
         if (active.data.current?.isPreset) {
             // SAVE TO SUPABASE
@@ -248,12 +267,15 @@ export default function VisualBuilder({ propertyId, initialUnits = [] }: { prope
                 </div>
 
                 {/* Float Controls */}
-                <div style={{ position: 'absolute', bottom: '2rem', left: '2rem', display: 'flex', gap: '0.5rem', zIndex: 60, pointerEvents: 'none' }}>
-                    <div style={{ padding: '0.5rem 1rem', background: 'rgba(30, 41, 59, 0.8)', color: 'white', borderRadius: '8px', fontSize: '0.8rem', border: '1px solid #475569' }}>
-                        Ctrl + Scroll to Zoom • Scroll to Pan
-                    </div>
-                    <div style={{ padding: '0.5rem 1rem', background: '#1e293b', border: '1px solid #475569', color: 'white', borderRadius: '8px', fontWeight: 'bold' }}>
-                        {Math.round(zoom * 100)}%
+                <div style={{ position: 'absolute', bottom: '2rem', left: '2rem', right: '2rem', display: 'flex', justifyContent: 'space-between', zIndex: 60, pointerEvents: 'none' }}>
+
+                    <div style={{ display: 'flex', gap: '0.5rem' }}>
+                        <div style={{ padding: '0.5rem 1rem', background: 'rgba(30, 41, 59, 0.8)', color: 'white', borderRadius: '8px', fontSize: '0.8rem', border: '1px solid #475569' }}>
+                            Ctrl + Scroll to Zoom • Scroll to Pan
+                        </div>
+                        <div style={{ padding: '0.5rem 1rem', background: '#1e293b', border: '1px solid #475569', color: 'white', borderRadius: '8px', fontWeight: 'bold' }}>
+                            {Math.round(zoom * 100)}%
+                        </div>
                     </div>
                 </div>
 
@@ -270,6 +292,12 @@ export default function VisualBuilder({ propertyId, initialUnits = [] }: { prope
                         <SidebarUnit type="stairs" label="Stairwell" icon={<ArrowUpFromLine size={16} />} />
                     </div>
                 </aside>
+
+                <AnimatePresence>
+                    {isDraggingExistingUnit && (
+                        <TrashZone />
+                    )}
+                </AnimatePresence>
             </div>
 
             {/* DRAG OVERLAY - Follows Mouse (Screen Space) */}
@@ -335,6 +363,40 @@ function CanvasContent({ units, ghost, activeId }: { units: Unit[], ghost: any, 
                 </div>
             ))}
         </div>
+    );
+}
+
+
+
+function TrashZone() {
+    const { setNodeRef, isOver } = useDroppable({
+        id: 'trash-zone',
+    });
+
+    return (
+        <motion.div
+            ref={setNodeRef}
+            initial={{ opacity: 0, scale: 0.8, y: 50, x: '-50%' }}
+            animate={{ opacity: 1, scale: 1, y: 0, x: '-50%' }}
+            exit={{ opacity: 0, scale: 0.8, y: 50, x: '-50%' }}
+            style={{
+                position: 'absolute',
+                bottom: '4rem',
+                left: '50%',
+                zIndex: 100,
+                width: 64, height: 64,
+                background: isOver ? '#ef4444' : 'rgba(30, 41, 59, 0.9)',
+                color: isOver ? 'white' : '#f87171',
+                borderRadius: '50%',
+                display: 'flex', alignItems: 'center', justifyContent: 'center',
+                border: isOver ? '2px solid white' : '2px solid #ef4444',
+                boxShadow: isOver ? '0 0 30px rgba(239, 68, 68, 0.6)' : '0 10px 25px rgba(0,0,0,0.3)',
+                backdropFilter: 'blur(10px)',
+                cursor: 'pointer'
+            }}
+        >
+            <Trash2 size={28} />
+        </motion.div>
     );
 }
 

@@ -1,0 +1,196 @@
+.container {
+    padding: 1rem;
+}
+
+.header {
+    margin-bottom: 2rem;
+}
+
+.title {
+    font-size: 1.75rem;
+    font-weight: 700;
+    color: var(--foreground);
+    margin-bottom: 0.25rem;
+}
+
+.subtitle {
+    color: var(--muted-foreground);
+    font-size: 0.95rem;
+}
+
+.loadingState {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    height: 50vh;
+    color: var(--muted-foreground);
+    gap: 1rem;
+}
+
+.spinner {
+    animation: spin 1s linear infinite;
+}
+
+@keyframes spin {
+    from {
+        transform: rotate(0deg);
+    }
+
+    to {
+        transform: rotate(360deg);
+    }
+}
+
+.propertySection {
+    background: white;
+    border: 1px solid var(--border);
+    border-radius: 16px;
+    margin-bottom: 2rem;
+    overflow: hidden;
+}
+
+.propertyHeader {
+    padding: 1.5rem;
+    background: rgba(248, 250, 252, 0.5);
+    border-bottom: 1px solid var(--border);
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+}
+
+.propertyName {
+    font-size: 1.1rem;
+    font-weight: 700;
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+}
+
+.propertyAddress {
+    font-size: 0.85rem;
+    color: var(--muted-foreground);
+    display: flex;
+    align-items: center;
+    gap: 0.25rem;
+    margin-top: 0.25rem;
+}
+
+.tableWrapper {
+    overflow-x: auto;
+}
+
+.table {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: 0.9rem;
+}
+
+.table th {
+    text-align: left;
+    padding: 1rem 1.5rem;
+    color: var(--muted-foreground);
+    font-weight: 600;
+    font-size: 0.8rem;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+    border-bottom: 1px solid var(--border);
+}
+
+.table td {
+    padding: 1rem 1.5rem;
+    border-bottom: 1px solid var(--border);
+    color: var(--foreground);
+}
+
+.table tr:last-child td {
+    border-bottom: none;
+}
+
+.unitBadge {
+    font-weight: 600;
+    background: #f1f5f9;
+    padding: 0.25rem 0.5rem;
+    border-radius: 6px;
+    font-size: 0.8rem;
+}
+
+.statusSelect {
+    padding: 0.4rem;
+    border-radius: 6px;
+    border: 1px solid var(--border);
+    background: white;
+    font-size: 0.85rem;
+    cursor: pointer;
+}
+
+.rentInput {
+    padding: 0.4rem;
+    border-radius: 6px;
+    border: 1px solid var(--border);
+    width: 100px;
+    font-size: 0.85rem;
+}
+
+.actionBtn {
+    background: none;
+    border: none;
+    cursor: pointer;
+    padding: 0.4rem;
+    border-radius: 6px;
+    transition: background 0.2s;
+    color: var(--muted-foreground);
+}
+
+.actionBtn:hover {
+    background: #f1f5f9;
+    color: var(--foreground);
+}
+
+.saveBtn {
+    color: #10b981;
+}
+
+.cancelBtn {
+    color: #ef4444;
+}
+
+.emptyState {
+    padding: 3rem;
+    text-align: center;
+    color: var(--muted-foreground);
+}
+
+.controlGroup {
+    position: relative;
+    display: flex;
+    align-items: center;
+}
+
+.controlIcon {
+    position: absolute;
+    left: 10px;
+    color: var(--muted-foreground);
+    pointer-events: none;
+}
+
+.controlSelect {
+    padding: 0.5rem 2rem 0.5rem 2.25rem;
+    border-radius: 8px;
+    border: 1px solid var(--border);
+    background: white;
+    color: var(--foreground);
+    font-size: 0.9rem;
+    cursor: pointer;
+    appearance: none;
+    background-image: url("data:image/svg+xml;charset=UTF-8,%3csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='currentColor' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3e%3cpolyline points='6 9 12 15 18 9'%3e%3c/polyline%3e%3c/svg%3e");
+    background-repeat: no-repeat;
+    background-position: right 0.75rem center;
+    background-size: 1em;
+    min-width: 160px;
+}
+
+.controlSelect:focus {
+    outline: 2px solid var(--primary);
+    border-color: transparent;
+}

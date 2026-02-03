@@ -1,6 +1,6 @@
 "use client";
 
-import { LayoutDashboard, Users, FileText, Settings, ArrowUpFromLine, Map } from "lucide-react";
+import { LayoutDashboard, Users, FileText, Settings, ArrowUpFromLine, Map, Building } from "lucide-react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 
@@ -18,6 +18,7 @@ export default function Sidebar() {
             <nav style={{ flex: 1, display: 'flex', flexDirection: 'column', gap: '0.5rem' }}>
                 <NavItem icon={<LayoutDashboard size={20} />} label="Dashboard" href="/landlord/dashboard" active={isActive("/landlord/dashboard")} />
                 <NavItem icon={<Map size={20} />} label="Blueprint" href="/landlord/blueprint" active={isActive("/landlord/blueprint")} />
+                <NavItem icon={<Building size={20} />} label="Properties" href="/landlord/properties" active={isActive("/landlord/properties")} />
                 <NavItem icon={<Users size={20} />} label="Tenants" href="/landlord/tenants" active={isActive("/landlord/tenants")} />
                 <NavItem icon={<FileText size={20} />} label="Documents" href="/landlord/documents" active={isActive("/landlord/documents")} />
                 <NavItem icon={<Settings size={20} />} label="Settings" href="/landlord/settings" active={isActive("/landlord/settings")} />
