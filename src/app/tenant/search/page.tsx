@@ -19,6 +19,7 @@ import Link from 'next/link';
 import dynamic from 'next/dynamic';
 import styles from './page.module.css';
 import { createClient } from '@/utils/supabase/client';
+import ListingDetailModal from '@/components/tenant/ListingDetailModal';
 
 // Dynamically import Map to avoid SSR issues
 const LeafletMap = dynamic(() => import('@/components/tenant/Map'), {
@@ -32,15 +33,16 @@ const LeafletMap = dynamic(() => import('@/components/tenant/Map'), {
 
 interface Property {
     id: any;
-    name: string;
-    type: string;
-    price: number;
-    rating: number;
-    distance: string;
-    features: string[];
-    image: string;
+    name: string; // mapped from title
+    type: string; // mapped from property_type
+    price: number; // mapped from price_range_min
+    rating: number; // mock or calculated
+    distance: string; // calculated
+    features: string[]; // mapped from amenities
+    image: string; // mapped from cover_photo
     lat: number;
     lng: number;
+    description?: string;
 }
 
 interface LocationSuggestion {
@@ -50,10 +52,15 @@ interface LocationSuggestion {
     lon: string;
 }
 
+import { useRouter, useSearchParams } from 'next/navigation';
+
 export default function TenantSearch() {
-    const [activeType, setActiveType] = useState('apartments');
+    const searchParams = useSearchParams();
+    const initialListingId = searchParams.get('id');
+
+    const [activeType, setActiveType] = useState('all');
     const [mapView, setMapView] = useState(true);
-    const [selectedProp, setSelectedProp] = useState<any | null>(null);
+    const [selectedPropId, setSelectedPropId] = useState<string | null>(initialListingId);
 
     // Real Data State
     const [properties, setProperties] = useState<Property[]>([]);
@@ -69,6 +76,11 @@ export default function TenantSearch() {
     const [isSearching, setIsSearching] = useState(false);
     const [showDropdown, setShowDropdown] = useState(false);
     const [selectedLocation, setSelectedLocation] = useState('Valenzuela City');
+
+    // Filters
+    const [priceRange, setPriceRange] = useState<number>(10000);
+    const [selectedAmenities, setSelectedAmenities] = useState<string[]>([]);
+
     const searchRef = useRef<HTMLDivElement>(null);
     const debounceTimeout = useRef<NodeJS.Timeout | null>(null);
 
@@ -131,62 +143,112 @@ export default function TenantSearch() {
         return () => document.removeEventListener('mousedown', handleClickOutside);
     }, []);
 
-    useEffect(() => {
-        async function fetchProperties() {
-            const supabase = createClient();
+    const fetchProperties = useCallback(async () => {
+        setLoading(true);
+        const supabase = createClient();
 
-            // Fetch properties with their units to calculate price range
-            const { data, error } = await supabase
-                .from('properties')
-                .select(`
-          id, 
-          name, 
-          address, 
-          lat, 
-          lng,
-          units (
-            rent_amount,
-            unit_type
-          )
-        `);
+        // Fetch published listings
+        const { data, error } = await supabase
+            .from('property_listings')
+            .select(`
+                id, 
+                title, 
+                property_type,
+                price_range_min,
+                lat, 
+                lng,
+                description,
+                listing_photos (url, is_primary),
+                listing_amenities (amenities (name))
+            `)
+            .eq('status', 'published');
 
-            if (error) {
-                console.error('Error fetching properties:', error);
-                setLoading(false);
-                return;
-            }
-
-            if (data) {
-                const mappedProps = data.map((p: any) => {
-                    // Calculate lowest price
-                    const prices = p.units?.map((u: any) => u.rent_amount) || [];
-                    const minPrice = prices.length > 0 ? Math.min(...prices) : 0;
-
-                    // Determine simplified type
-                    const type = p.units?.some((u: any) => u.unit_type === 'dorm') ? 'Dormitory' : 'Apartment';
-
-                    // Mock visual data if missing
-                    return {
-                        id: p.id,
-                        name: p.name,
-                        type: type,
-                        price: minPrice,
-                        rating: 4.5 + (Math.random() * 0.5), // Mock rating
-                        distance: "1.2km", // Mock distance
-                        features: ["Wifi", "Security"], // Mock features
-                        image: `linear-gradient(135deg, ${getRandomColor()} 0%, ${getRandomColor()} 100%)`, // Mock image
-                        lat: p.lat || 14.6819 + (Math.random() - 0.5) * 0.05, // Use DB lat or random around Valenzuela
-                        lng: p.lng || 120.9772 + (Math.random() - 0.5) * 0.05
-                    };
-                });
-
-                setProperties(mappedProps);
-            }
+        if (error) {
+            console.error('Error fetching properties:', error);
             setLoading(false);
+            return;
         }
 
+        if (data) {
+            const mappedProps: Property[] = data.map((p: any) => {
+                // Determine cover photo
+                const coverPhoto = p.listing_photos?.find((ph: any) => ph.is_primary)?.url
+                    || p.listing_photos?.[0]?.url
+                    || null;
+
+                // Map amenities names
+                const features = p.listing_amenities?.map((la: any) => la.amenities?.name).filter(Boolean) || [];
+
+                // Use random color if no image
+                const image = coverPhoto
+                    ? `url(${coverPhoto})`
+                    : `linear-gradient(135deg, ${getRandomColor()} 0%, ${getRandomColor()} 100%)`;
+
+                // Calculate pseudo-distance (mock for now as we don't have user's exact starting point or routing)
+                // In a real app, this would calculate distance from `mapCenter`
+                const distanceVal = calculateDistance(mapCenter[0], mapCenter[1], p.lat || mapCenter[0], p.lng || mapCenter[1]);
+
+                return {
+                    id: p.id,
+                    name: p.title,
+                    type: p.property_type,
+                    price: p.price_range_min || 0,
+                    rating: 4.5 + (Math.random() * 0.5), // Mock rating since we don't have reviews yet
+                    distance: distanceVal < 1 ? `${(distanceVal * 1000).toFixed(0)}m` : `${distanceVal.toFixed(1)}km`,
+                    features: features,
+                    image: image,
+                    lat: p.lat || mapCenter[0] + (Math.random() - 0.5) * 0.02, // Fallback random pos if no lat/lng
+                    lng: p.lng || mapCenter[1] + (Math.random() - 0.5) * 0.02,
+                    description: p.description
+                };
+            });
+
+            // Filter based on active filters
+            let filtered = mappedProps;
+
+            if (activeType !== 'all') {
+                if (activeType === 'dorms') {
+                    filtered = filtered.filter(p => p.type === 'dormitory' || p.type === 'boarding_house');
+                } else if (activeType === 'apartments') {
+                    filtered = filtered.filter(p => p.type === 'apartment' || p.type === 'condo' || p.type === 'house');
+                }
+            }
+
+            if (priceRange < 15000) {
+                filtered = filtered.filter(p => p.price <= priceRange);
+            }
+
+            if (selectedAmenities.length > 0) {
+                filtered = filtered.filter(p =>
+                    selectedAmenities.every(amenity => p.features.includes(amenity))
+                );
+            }
+
+            setProperties(filtered);
+        }
+        setLoading(false);
+    }, [mapCenter, activeType, priceRange, selectedAmenities]);
+
+    useEffect(() => {
         fetchProperties();
-    }, []);
+    }, [fetchProperties]);
+
+    const calculateDistance = (lat1: number, lon1: number, lat2: number, lon2: number) => {
+        const R = 6371; // Radius of the earth in km
+        const dLat = deg2rad(lat2 - lat1);
+        const dLon = deg2rad(lon2 - lon1);
+        const a =
+            Math.sin(dLat / 2) * Math.sin(dLat / 2) +
+            Math.cos(deg2rad(lat1)) * Math.cos(deg2rad(lat2)) *
+            Math.sin(dLon / 2) * Math.sin(dLon / 2);
+        const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+        const d = R * c; // Distance in km
+        return d;
+    };
+
+    const deg2rad = (deg: number) => {
+        return deg * (Math.PI / 180);
+    };
 
     const getRandomColor = () => {
         const colors = ['#e0c3fc', '#8ec5fc', '#f093fb', '#f5576c', '#a8edea', '#fed6e3', '#f6d365', '#fda085'];
@@ -205,6 +267,14 @@ export default function TenantSearch() {
             });
         } else {
             alert("Geolocation is not supported by your browser.");
+        }
+    };
+
+    const toggleAmenity = (amenity: string) => {
+        if (selectedAmenities.includes(amenity)) {
+            setSelectedAmenities(prev => prev.filter(a => a !== amenity));
+        } else {
+            setSelectedAmenities(prev => [...prev, amenity]);
         }
     };
 
@@ -261,16 +331,22 @@ export default function TenantSearch() {
                 <div className={styles.headerActions}>
                     <div className={styles.toggleGroup}>
                         <button
+                            className={`${styles.toggleItem} ${activeType === 'all' ? styles.active : ''}`}
+                            onClick={() => setActiveType('all')}
+                        >
+                            <List size={16} /> All
+                        </button>
+                        <button
                             className={`${styles.toggleItem} ${activeType === 'apartments' ? styles.active : ''}`}
                             onClick={() => setActiveType('apartments')}
                         >
-                            <Building size={16} /> For Rent
+                            <Building size={16} /> Apartments
                         </button>
                         <button
                             className={`${styles.toggleItem} ${activeType === 'dorms' ? styles.active : ''}`}
                             onClick={() => setActiveType('dorms')}
                         >
-                            <Home size={16} /> For Sale
+                            <Home size={16} /> Dorms
                         </button>
                     </div>
 
@@ -299,13 +375,13 @@ export default function TenantSearch() {
                         <div className={styles.categorySelect}>
                             <div
                                 className={`${styles.categoryOption} ${activeType === 'apartments' ? styles.selected : ''}`}
-                                onClick={() => setActiveType('apartments')}
+                                onClick={() => setActiveType(activeType === 'apartments' ? 'all' : 'apartments')}
                             >
                                 🏢 Apartments
                             </div>
                             <div
                                 className={`${styles.categoryOption} ${activeType === 'dorms' ? styles.selected : ''}`}
-                                onClick={() => setActiveType('dorms')}
+                                onClick={() => setActiveType(activeType === 'dorms' ? 'all' : 'dorms')}
                             >
                                 🎓 Dorms
                             </div>
@@ -315,13 +391,17 @@ export default function TenantSearch() {
                     <div className={styles.filterSection}>
                         <h3>Amenities</h3>
                         <div className={styles.checkboxList}>
-                            {['Wifi', 'Parking', 'Gym', 'Pool', 'Air Conditioning'].map((item, i) => (
-                                <div key={item} className={`${styles.checkboxItem} ${i < 2 ? styles.checked : ''}`}>
+                            {['Wifi', 'Parking', 'Gym', 'Pool', 'Air Conditioning', 'Pets Allowed'].map((item, i) => (
+                                <div
+                                    key={item}
+                                    className={`${styles.checkboxItem} ${selectedAmenities.includes(item) ? styles.checked : ''}`}
+                                    onClick={() => toggleAmenity(item)}
+                                >
                                     <div className={styles.checkboxLabel}>
                                         {item}
                                     </div>
                                     <div className={styles.customCheckbox}>
-                                        {i < 2 && <Check size={12} />}
+                                        {selectedAmenities.includes(item) && <Check size={12} />}
                                     </div>
                                 </div>
                             ))}
@@ -333,76 +413,72 @@ export default function TenantSearch() {
                         <div style={{ padding: '0 0.5rem' }}>
                             <input
                                 type="range"
-                                min="0"
-                                max="3000"
+                                min="1000"
+                                max="30000"
+                                step="500"
+                                value={priceRange}
+                                onChange={(e) => setPriceRange(parseInt(e.target.value))}
                                 className={styles.rangeSlider}
                                 style={{ width: '100%', accentColor: 'var(--foreground)' }}
                             />
                         </div>
                         <div className={styles.rangeInputs}>
-                            <span>$500</span>
-                            <span>Average: $1,200</span>
-                        </div>
-                    </div>
-
-                    <div className={styles.filterSection}>
-                        <h3>Rating</h3>
-                        <div className={styles.ratingGroup}>
-                            {['Any', '3+', '4+', '★ 5'].map((r, i) => (
-                                <div key={r} className={`${styles.ratingFilter} ${i === 2 ? styles.active : ''}`}>
-                                    {r}
-                                </div>
-                            ))}
+                            <span>₱0</span>
+                            <span>Max: ₱{priceRange.toLocaleString()}</span>
                         </div>
                     </div>
                 </aside>
 
                 {/* Map & Results Area */}
                 <main className={styles.resultsArea}>
-                    <div className={styles.mapContainer}>
-                        <LeafletMap
-                            properties={properties}
-                            center={mapCenter}
-                            userLocation={userLocation}
-                            onMarkerClick={(id) => setSelectedProp(id)}
-                        />
+                    {mapView && (
+                        <div className={styles.mapContainer}>
+                            <LeafletMap
+                                properties={properties}
+                                center={mapCenter}
+                                userLocation={userLocation}
+                                onMarkerClick={(id) => setSelectedPropId(String(id))}
+                            />
 
-                        {/* Floating "Search as I move" */}
-                        <button className={styles.floatingSearch} onClick={handleUseLocation}>
-                            <LocateFixed size={16} color="var(--primary)" />
-                            {userLocation ? 'Update my location' : 'Use my GPS Location'}
-                        </button>
-                    </div>
+                            {/* Floating "Search as I move" */}
+                            <button className={styles.floatingSearch} onClick={handleUseLocation}>
+                                <LocateFixed size={16} color="var(--primary)" />
+                                {userLocation ? 'Update my location' : 'Use my GPS Location'}
+                            </button>
+                        </div>
+                    )}
 
-                    {/* Results Overlay (Right Side) */}
-                    <div className={styles.resultsOverlay}>
-                        <div style={{ display: 'flex', justifyContent: 'space-between', padding: '0 1rem' }}>
+                    {/* Results Overlay (Right Side on Map View, Full width on List View) */}
+                    <div className={mapView ? styles.resultsOverlay : styles.resultsListFull}>
+                        <div style={{ display: 'flex', justifyContent: 'space-between', padding: '0 1rem', marginBottom: '1rem' }}>
                             <span style={{ fontWeight: 600 }}>{properties.length} Results</span>
                             <span style={{ color: 'var(--muted-foreground)', fontSize: '0.9rem', cursor: 'pointer' }}>Popular first ↕</span>
                         </div>
 
-                        <div className={styles.resultsList}>
+                        <div className={mapView ? styles.resultsList : styles.resultsGrid}>
                             {loading ? (
                                 <div style={{ textAlign: 'center', padding: '2rem' }}>Loading properties...</div>
                             ) : properties.map(prop => (
                                 <div
                                     key={prop.id}
                                     className={styles.resultCard}
-                                    onMouseEnter={() => {
-                                        setSelectedProp(prop.id);
-                                        setMapCenter([prop.lat, prop.lng]);
-                                    }}
-                                    style={selectedProp === prop.id ? { boxShadow: '0 0 0 2px var(--primary)' } : {}}
+                                    onClick={() => setSelectedPropId(prop.id)}
+                                    onMouseEnter={() => matchMedia('(min-width: 1024px)').matches && setMapCenter([prop.lat, prop.lng])}
+                                    style={selectedPropId === prop.id ? { boxShadow: '0 0 0 2px var(--primary)' } : {}}
                                 >
                                     <div className={styles.cardImages}>
                                         <div
                                             className={styles.cardImage}
-                                            style={{ background: prop.image }}
+                                            style={{
+                                                background: prop.image.startsWith('url') ? prop.image : prop.image,
+                                                backgroundSize: 'cover',
+                                                backgroundPosition: 'center'
+                                            }}
                                         />
                                         <button className={styles.favoriteBtn}>
                                             <Heart size={16} />
                                         </button>
-                                        {prop.rating >= 5 && (
+                                        {prop.rating >= 4.8 && (
                                             <div className={styles.cardBadge}>
                                                 <Star size={12} fill="currentColor" style={{ display: 'inline', marginRight: 4 }} />
                                                 Top Rated
@@ -422,13 +498,16 @@ export default function TenantSearch() {
                                         </div>
 
                                         <div className={styles.cardPrice}>
-                                            ₱{prop.price}<span style={{ fontSize: '0.8rem', fontWeight: 400, color: 'var(--muted-foreground)' }}>/mo</span>
+                                            ₱{prop.price.toLocaleString()}<span style={{ fontSize: '0.8rem', fontWeight: 400, color: 'var(--muted-foreground)' }}>/mo</span>
                                         </div>
 
                                         <div className={styles.cardChips}>
-                                            {prop.features.map(f => (
+                                            {prop.features.slice(0, 3).map(f => (
                                                 <span key={f} className={styles.cardChip}>{f}</span>
                                             ))}
+                                            {prop.features.length > 3 && (
+                                                <span className={styles.cardChip}>+{prop.features.length - 3}</span>
+                                            )}
                                         </div>
                                     </div>
                                 </div>
@@ -437,6 +516,14 @@ export default function TenantSearch() {
                     </div>
                 </main>
             </div>
+
+            {/* Listing Detail Modal */}
+            {selectedPropId && (
+                <ListingDetailModal
+                    listingId={selectedPropId}
+                    onClose={() => setSelectedPropId(null)}
+                />
+            )}
         </div>
     );
 }

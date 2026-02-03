@@ -13,7 +13,8 @@ import {
     Receipt,
     CheckSquare,
     Wallet,
-    HelpCircle
+    HelpCircle,
+    Globe
 } from "lucide-react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
@@ -54,6 +55,12 @@ export default function Sidebar() {
                         label="Properties"
                         href="/landlord/properties"
                         active={isActive("/landlord/properties")}
+                    />
+                    <NavItem
+                        icon={<Globe size={20} />}
+                        label="Listings"
+                        href="/landlord/listings"
+                        active={isActive("/landlord/listings")}
                     />
                     <NavItem
                         icon={<Map size={20} />}

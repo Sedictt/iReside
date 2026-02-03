@@ -28,18 +28,19 @@ const UserIcon = L.divIcon({
 });
 
 interface Property {
-    id: number;
+    id: string;
     name: string;
     lat: number;
     lng: number;
-    price: number;
+    price: number | null;
+    price_display?: string | null;
 }
 
 interface MapProps {
     properties: Property[];
     center: [number, number];
     userLocation?: [number, number] | null;
-    onMarkerClick?: (id: number) => void;
+    onMarkerClick?: (id: string) => void;
 }
 
 export default function LeafletMap({ properties, center, userLocation, onMarkerClick }: MapProps) {
@@ -99,8 +100,9 @@ export default function LeafletMap({ properties, center, userLocation, onMarkerC
         // Add new markers
         properties.forEach((prop) => {
             if (prop.lat && prop.lng) {
+                const priceText = prop.price_display || (prop.price ? `₱${prop.price.toLocaleString()}/mo` : 'Contact for price');
                 const marker = L.marker([prop.lat, prop.lng], { icon: DefaultIcon })
-                    .bindPopup(`<div style="font-weight: bold;">${prop.name}</div><div>₱${prop.price}/mo</div>`);
+                    .bindPopup(`<div style="font-weight: bold;">${prop.name}</div><div>${priceText}</div>`);
 
                 marker.on('click', () => {
                     onMarkerClick?.(prop.id);
