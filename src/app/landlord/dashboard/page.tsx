@@ -1,12 +1,10 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import {
-    TrendingUp,
     Users,
     Building2,
     DollarSign,
-    MessageSquare,
     AlertCircle,
     ArrowUpRight,
     ArrowDownRight,
@@ -17,6 +15,41 @@ import { createClient } from "@/utils/supabase/client";
 import { motion } from "framer-motion";
 import styles from "./dashboard.module.css";
 
+type UnitStatusDb = 'available' | 'occupied' | 'maintenance' | 'neardue';
+
+type UnitRow = {
+    status: UnitStatusDb;
+    rent_amount: number | string | null;
+};
+
+type PropertyRow = {
+    units?: UnitRow[];
+};
+
+type StatCardProps = {
+    icon: React.ReactNode;
+    label: string;
+    value: string;
+    trend: string;
+    positive: boolean;
+};
+
+type InquiryItemProps = {
+    name: string;
+    property: string;
+    message: string;
+    time: string;
+};
+
+type AlertType = 'critical' | 'warning' | 'info';
+
+type AlertItemProps = {
+    type: AlertType;
+    title: string;
+    location: string;
+    status: string;
+};
+
 export default function LandlordDashboard() {
     const [stats, setStats] = useState({
         revenue: "₱0",
@@ -25,19 +58,18 @@ export default function LandlordDashboard() {
         pendingRequests: "0"
     });
     const [isLoading, setIsLoading] = useState(true);
-    const supabase = createClient();
+    const supabase = useMemo(() => createClient(), []);
 
-    useEffect(() => {
-        fetchDashboardData();
-    }, []);
-
-    async function fetchDashboardData() {
+    const fetchDashboardData = useCallback(async () => {
         setIsLoading(true);
         const { data: { user } } = await supabase.auth.getUser();
-        if (!user) return;
+        if (!user) {
+            setIsLoading(false);
+            return;
+        }
 
         // Fetch properties with units
-        const { data: properties, error } = await supabase
+        const { data: properties } = await supabase
             .from('properties')
             .select('*, units(*)');
 
@@ -47,8 +79,8 @@ export default function LandlordDashboard() {
             let totalUnits = 0;
             let maintenanceUnits = 0;
 
-            properties.forEach(property => {
-                property.units?.forEach((unit: any) => {
+            properties.forEach((property: PropertyRow) => {
+                property.units?.forEach((unit: UnitRow) => {
                     totalUnits++;
                     if (unit.status === 'occupied' || unit.status === 'neardue') {
                         occupiedUnits++;
@@ -70,7 +102,11 @@ export default function LandlordDashboard() {
             });
         }
         setIsLoading(false);
-    }
+    }, [supabase]);
+
+    useEffect(() => {
+        fetchDashboardData();
+    }, [fetchDashboardData]);
 
     if (isLoading) {
         return (
@@ -86,7 +122,7 @@ export default function LandlordDashboard() {
             <header className={styles.header}>
                 <div>
                     <h1 className={styles.title}>Overview</h1>
-                    <p className={styles.subtitle}>Welcome back! Here's what's happening today.</p>
+                    <p className={styles.subtitle}>Welcome back! Here&apos;s what&apos;s happening today.</p>
                 </div>
                 <div className={styles.dateDisplay}>
                     <Clock size={16} />
@@ -143,7 +179,7 @@ export default function LandlordDashboard() {
                         <InquiryItem
                             name="Maria Clara"
                             property="Vista Residences"
-                            message="I'd like to ask about the pet policy for the 2BR units."
+                            message="I&apos;d like to ask about the pet policy for the 2BR units."
                             time="5h ago"
                         />
                         <InquiryItem
@@ -186,7 +222,7 @@ export default function LandlordDashboard() {
     );
 }
 
-function StatCard({ icon, label, value, trend, positive }: any) {
+function StatCard({ icon, label, value, trend, positive }: StatCardProps) {
     return (
         <motion.div
             initial={{ opacity: 0, y: 10 }}
@@ -206,7 +242,7 @@ function StatCard({ icon, label, value, trend, positive }: any) {
     );
 }
 
-function InquiryItem({ name, property, message, time }: any) {
+function InquiryItem({ name, property, message, time }: InquiryItemProps) {
     return (
         <div className={styles.listItem}>
             <div className={styles.avatar}>{name[0]}</div>
@@ -222,7 +258,7 @@ function InquiryItem({ name, property, message, time }: any) {
     );
 }
 
-function AlertItem({ type, title, location, status }: any) {
+function AlertItem({ type, title, location, status }: AlertItemProps) {
     const colors = {
         critical: "#ef4444",
         warning: "#f59e0b",

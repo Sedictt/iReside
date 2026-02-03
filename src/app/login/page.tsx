@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { Suspense, useState } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import { login, signup } from "./actions";
 import { Mail, Lock, User, Building2, UserCircle, ArrowRight, Loader2, Info } from "lucide-react";
@@ -8,16 +8,19 @@ import styles from "./login.module.css";
 import { useSearchParams } from "next/navigation";
 
 export default function LoginPage() {
+    return (
+        <Suspense fallback={null}>
+            <LoginPageInner />
+        </Suspense>
+    );
+}
+
+function LoginPageInner() {
     const [isLogin, setIsLogin] = useState(true);
     const [isLoading, setIsLoading] = useState(false);
     const searchParams = useSearchParams();
     const error = searchParams.get("error");
     const message = searchParams.get("message");
-
-    const handleSubmit = async (e: React.FormEvent<HTMLFormElement>) => {
-        setIsLoading(true);
-        // Let the form action handle the submission
-    };
 
     return (
         <main className={styles.container}>
@@ -59,7 +62,7 @@ export default function LoginPage() {
                         animate={{ opacity: 1, x: 0 }}
                         exit={{ opacity: 0, x: isLogin ? 20 : -20 }}
                         className={styles.form}
-                        onSubmit={handleSubmit}
+                        onSubmit={() => setIsLoading(true)}
                         action={isLogin ? login : signup}
                     >
                         {!isLogin && (

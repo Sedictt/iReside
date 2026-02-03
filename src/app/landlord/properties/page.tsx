@@ -1,18 +1,29 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { Building, MapPin, Loader2, Edit2, Check, X, User, Filter, ArrowUpDown } from "lucide-react";
 import { createClient } from "@/utils/supabase/client";
 import styles from "./properties.module.css";
 
 // Interface matches database
+type UnitStatusDb = 'available' | 'occupied' | 'maintenance' | 'neardue';
+
+type ProfileRow = {
+    full_name: string | null;
+};
+
+type LeaseRow = {
+    status: string;
+    profiles?: ProfileRow | null;
+};
+
 type Unit = {
     id: string;
     unit_number: string;
     unit_type: string;
     rent_amount: number;
-    status: 'available' | 'occupied' | 'maintenance' | 'neardue';
-    leases?: any[];
+    status: UnitStatusDb;
+    leases?: LeaseRow[];
 };
 
 type Property = {
@@ -26,24 +37,23 @@ export default function PropertiesPage() {
     const [properties, setProperties] = useState<Property[]>([]);
     const [isLoading, setIsLoading] = useState(true);
     const [editingUnit, setEditingUnit] = useState<string | null>(null);
-    const [editForm, setEditForm] = useState<{ rent: number; status: string }>({ rent: 0, status: '' });
+    const [editForm, setEditForm] = useState<{ rent: number; status: UnitStatusDb }>({ rent: 0, status: 'available' });
 
     const [filterStatus, setFilterStatus] = useState<string>('all');
     const [sortBy, setSortBy] = useState<string>('unit_number');
 
-    const supabase = createClient();
+    const supabase = useMemo(() => createClient(), []);
 
-    useEffect(() => {
-        fetchProperties();
-    }, []);
-
-    async function fetchProperties() {
+    const fetchProperties = useCallback(async () => {
         setIsLoading(true);
         const { data: { user } } = await supabase.auth.getUser();
-        if (!user) return;
+        if (!user) {
+            setIsLoading(false);
+            return;
+        }
 
         // Fetch properties with units and active leases
-        const { data, error } = await supabase
+        const { data } = await supabase
             .from('properties')
             .select(`
         *,
@@ -60,14 +70,21 @@ export default function PropertiesPage() {
 
         if (data) {
             // Sort units by number naturally
-            const props = data.map((p: any) => ({
+            const props = (data as Property[]).map((p) => ({
                 ...p,
-                units: p.units.sort((a: any, b: any) => a.unit_number.localeCompare(b.unit_number, undefined, { numeric: true }))
+                units: [...(p.units ?? [])].sort((a, b) => a.unit_number.localeCompare(b.unit_number, undefined, { numeric: true }))
             }));
             setProperties(props);
         }
         setIsLoading(false);
-    }
+    }, [supabase]);
+
+    useEffect(() => {
+        const id = requestAnimationFrame(() => {
+            void fetchProperties();
+        });
+        return () => cancelAnimationFrame(id);
+    }, [fetchProperties]);
 
     function startEdit(unit: Unit) {
         setEditingUnit(unit.id);
@@ -93,7 +110,7 @@ export default function PropertiesPage() {
         if (!error) {
             setProperties(prev => prev.map(p => ({
                 ...p,
-                units: p.units.map(u => u.id === unitId ? { ...u, rent_amount: editForm.rent, status: editForm.status as any } : u)
+                units: p.units.map(u => u.id === unitId ? { ...u, rent_amount: editForm.rent, status: editForm.status } : u)
             })));
             setEditingUnit(null);
         }
@@ -101,7 +118,7 @@ export default function PropertiesPage() {
 
     function getActiveTenant(unit: Unit) {
         // Only looking for active leases
-        const lease = unit.leases?.find((l: any) => l.status === 'active');
+        const lease = unit.leases?.find((l) => l.status === 'active');
         return lease?.profiles?.full_name || '-';
     }
 
@@ -227,7 +244,7 @@ export default function PropertiesPage() {
                                                         <select
                                                             className={styles.statusSelect}
                                                             value={editForm.status}
-                                                            onChange={e => setEditForm({ ...editForm, status: e.target.value })}
+                                                            onChange={e => setEditForm({ ...editForm, status: e.target.value as UnitStatusDb })}
                                                         >
                                                             <option value="available">Available</option>
                                                             <option value="occupied">Occupied</option>
@@ -279,16 +296,15 @@ export default function PropertiesPage() {
     );
 }
 
-function StatusBadge({ status }: { status: string }) {
-    const colors: any = {
+function StatusBadge({ status }: { status: UnitStatusDb }) {
+    const colors: Record<UnitStatusDb, { bg: string; text: string; label: string }> = {
         available: { bg: '#dcfce7', text: '#166534', label: 'Vacant' },
         occupied: { bg: '#e0e7ff', text: '#3730a3', label: 'Occupied' },
         maintenance: { bg: '#fef9c3', text: '#854d0e', label: 'Maintenance' },
         neardue: { bg: '#fee2e2', text: '#991b1b', label: 'Late Payment' },
     };
 
-    // Fallback
-    const config = colors[status] || colors.available;
+    const config = colors[status];
 
     return (
         <span style={{

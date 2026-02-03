@@ -6,6 +6,11 @@ export const metadata: Metadata = {
   description: "Modern Landlord & Tenant Management Prototype",
 };
 
+import { Inter, Outfit } from "next/font/google";
+
+const inter = Inter({ subsets: ["latin"], variable: "--font-inter" });
+const outfit = Outfit({ subsets: ["latin"], variable: "--font-outfit" });
+
 export default function RootLayout({
   children,
 }: Readonly<{
@@ -13,7 +18,7 @@ export default function RootLayout({
 }>) {
   return (
     <html lang="en">
-      <body>{children}</body>
+      <body className={`${inter.variable} ${outfit.variable}`} suppressHydrationWarning={true}>{children}</body>
     </html>
   );
 }

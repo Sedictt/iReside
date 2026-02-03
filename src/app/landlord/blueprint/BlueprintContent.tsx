@@ -1,36 +1,60 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useCallback, useMemo, useState, useEffect } from "react";
 import { Plus, Building, MapPin, ChevronLeft, Loader2, Home } from "lucide-react";
 import { createClient } from "@/utils/supabase/client";
 import VisualBuilder from "@/components/landlord/VisualBuilder";
 import { motion, AnimatePresence } from "framer-motion";
 import styles from "./blueprint.module.css";
 
+type UnitRow = {
+    id: string;
+    unit_type: string;
+    grid_x: number;
+    grid_y: number;
+    status: string;
+    unit_number: string | null;
+    rent_amount: number | null;
+};
+
+type PropertyRow = {
+    id: string;
+    name: string;
+    address: string;
+    description: string | null;
+    units?: UnitRow[];
+};
+
 export default function BlueprintContent() {
-    const [properties, setProperties] = useState<any[]>([]);
-    const [selectedProperty, setSelectedProperty] = useState<any>(null);
+    const [properties, setProperties] = useState<PropertyRow[]>([]);
+    const [selectedProperty, setSelectedProperty] = useState<PropertyRow | null>(null);
     const [isLoading, setIsLoading] = useState(true);
     const [isAddingProperty, setIsAddingProperty] = useState(false);
-    const supabase = createClient();
+    const supabase = useMemo(() => createClient(), []);
 
-    useEffect(() => {
-        fetchProperties();
-    }, []);
-
-    async function fetchProperties() {
+    const fetchProperties = useCallback(async () => {
         setIsLoading(true);
         const { data: { user } } = await supabase.auth.getUser();
-        if (!user) return;
+        if (!user) {
+            setIsLoading(false);
+            return;
+        }
 
-        const { data, error } = await supabase
+        const { data } = await supabase
             .from('properties')
             .select('*, units(*)')
             .eq('landlord_id', user.id);
 
         if (data) setProperties(data);
         setIsLoading(false);
-    }
+    }, [supabase]);
+
+    useEffect(() => {
+        const id = requestAnimationFrame(() => {
+            void fetchProperties();
+        });
+        return () => cancelAnimationFrame(id);
+    }, [fetchProperties]);
 
     async function handleAddProperty(e: React.FormEvent<HTMLFormElement>) {
         e.preventDefault();
@@ -44,7 +68,7 @@ export default function BlueprintContent() {
             description: formData.get('description'),
         };
 
-        const { data, error } = await supabase
+        const { data } = await supabase
             .from('properties')
             .insert([newProperty])
             .select();
@@ -64,7 +88,7 @@ export default function BlueprintContent() {
         );
     }
 
-    if (selectedProperty) {
+        if (selectedProperty) {
         return (
             <div className={styles.viewContainer}>
                 <header className={styles.header}>
@@ -80,7 +104,7 @@ export default function BlueprintContent() {
                     </div>
                 </header>
                 <div className={styles.visualBuilderWrapper}>
-                    <VisualBuilder propertyId={selectedProperty.id} initialUnits={selectedProperty.units} />
+                    <VisualBuilder propertyId={selectedProperty.id} initialUnits={selectedProperty.units ?? []} />
                 </div>
             </div>
         );

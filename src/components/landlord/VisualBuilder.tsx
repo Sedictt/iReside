@@ -19,6 +19,18 @@ interface Unit {
     rentAmount?: number;
 }
 
+type InitialUnit = {
+    id: string;
+    unit_type: string;
+    grid_x: number;
+    grid_y: number;
+    status: string;
+    unit_number?: string | null;
+    rent_amount?: number | null;
+};
+
+type GhostState = { x: number; y: number; widthCells: number; valid: boolean };
+
 // Config
 const GRID_CELL_SIZE = 40;
 const FLOOR_HEIGHT_CELLS = 4;
@@ -33,15 +45,22 @@ const unitConfig: Record<UnitType, { cells: number; label: string }> = {
 
 import { createClient } from '@/utils/supabase/client';
 
-export default function VisualBuilder({ propertyId, initialUnits = [] }: { propertyId: string, initialUnits?: any[] }) {
-    const [units, setUnits] = useState<Unit[]>(initialUnits.map(u => ({
+function mapDbStatusToUi(status: string): Unit['status'] {
+    if (status === 'available') return 'vacant';
+    if (status === 'vacant') return 'vacant';
+    if (status === 'occupied' || status === 'maintenance' || status === 'neardue') return status;
+    return 'vacant';
+}
+
+export default function VisualBuilder({ propertyId, initialUnits = [] }: { propertyId: string, initialUnits?: InitialUnit[] }) {
+    const [units, setUnits] = useState<Unit[]>(initialUnits.map((u) => ({
         id: u.id,
         type: u.unit_type as UnitType,
         gridX: u.grid_x,
         gridY: u.grid_y,
-        status: u.status === 'available' ? 'vacant' : u.status as any,
-        unitNumber: u.unit_number,
-        rentAmount: u.rent_amount
+        status: mapDbStatusToUi(u.status),
+        unitNumber: u.unit_number ?? undefined,
+        rentAmount: u.rent_amount ?? undefined
     })));
     const supabase = createClient();
 
@@ -49,7 +68,7 @@ export default function VisualBuilder({ propertyId, initialUnits = [] }: { prope
     const [activeId, setActiveId] = useState<string | null>(null);
     const [activeType, setActiveType] = useState<UnitType | null>(null);
     const [isDraggingExistingUnit, setIsDraggingExistingUnit] = useState(false); // New state to track if an existing unit is being dragged
-    const [ghostState, setGhostState] = useState<{ x: number, y: number, widthCells: number, valid: boolean } | null>(null);
+    const [ghostState, setGhostState] = useState<GhostState | null>(null);
 
     // Viewport State
     const [zoom, setZoom] = useState(1);
@@ -86,7 +105,10 @@ export default function VisualBuilder({ propertyId, initialUnits = [] }: { prope
 
     // Hydration check
     const [mounted, setMounted] = useState(false);
-    useEffect(() => setMounted(true), []);
+    useEffect(() => {
+        const id = requestAnimationFrame(() => setMounted(true));
+        return () => cancelAnimationFrame(id);
+    }, []);
 
     // --- Drag Logic ---
 
@@ -189,7 +211,7 @@ export default function VisualBuilder({ propertyId, initialUnits = [] }: { prope
             const unitType = activeType as UnitType;
             const unitNumber = `${finalGhost.y}${Math.floor(finalGhost.x / 2) + 10}`; // Simple generator
 
-            const { data, error } = await supabase
+            const { data, error: _error } = await supabase
                 .from('units')
                 .insert([{
                     property_id: propertyId,
@@ -325,7 +347,7 @@ export default function VisualBuilder({ propertyId, initialUnits = [] }: { prope
     );
 }
 
-function CanvasContent({ units, ghost, activeId }: { units: Unit[], ghost: any, activeId: string | null }) {
+function CanvasContent({ units, ghost, activeId }: { units: Unit[], ghost: GhostState | null, activeId: string | null }) {
     // ... (inside DraggableUnit function later in file)
     const { setNodeRef } = useDroppable({ id: 'canvas-droppable' });
     const GRID_ROWS = 10;
@@ -434,7 +456,7 @@ function DraggableUnit({ unit, totalRows }: { unit: Unit, totalRows: number }) {
     // Styles
     const isStairs = unit.type === 'stairs';
     const isOccupied = unit.status === 'occupied';
-    const isVacant = unit.status === 'vacant';
+    const _isVacant = unit.status === 'vacant';
 
     // Theme Colors
     const bgGradient = isStairs

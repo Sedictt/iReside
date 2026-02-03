@@ -1,6 +1,6 @@
 "use client";
 
-import { LayoutDashboard, Users, FileText, Settings, ArrowUpFromLine, Map, Building } from "lucide-react";
+import { LayoutDashboard, Users, FileText, Settings, ArrowUpFromLine, Map, Building, Sparkles } from "lucide-react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 
@@ -60,7 +60,7 @@ export default function Sidebar() {
     );
 }
 
-function NavItem({ icon, label, active = false, href }: { icon: any, label: string, active?: boolean, href: string }) {
+function NavItem({ icon, label, active = false, href }: { icon: React.ReactNode, label: string, active?: boolean, href: string }) {
     const style: React.CSSProperties = {
         padding: '0.75rem 1rem',
         borderRadius: '8px',
