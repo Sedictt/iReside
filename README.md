@@ -1,36 +1,56 @@
-This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-app`](https://nextjs.org/docs/app/api-reference/cli/create-next-app).
+# Tenant Platform
 
-## Getting Started
+A comprehensive, dual-sided SaaS ecosystem designed to seamlessly connect Landlords and Tenants. It bridges the gap between property management and modern living, providing distinct yet integrated portals for both sides of the rental experience.
 
-First, run the development server:
+## 🌟 The Vision
 
-```bash
-npm run dev
-# or
-yarn dev
-# or
-pnpm dev
-# or
-bun dev
-```
+Traditional rental management is fragmented—landlords use spreadsheets, tenants use email/SMS, and payments happen elsewhere. **Tenant Platform** unifies this into a single, cohesive operating system.
 
-Open [http://localhost:3000](http://localhost:3000) with your browser to see the result.
+It is **one platform with two powerful perspectives**:
 
-You can start editing the page by modifying `app/page.tsx`. The page auto-updates as you edit the file.
+### 🏢 1. The Landlord Portal (Business Operations)
+*A command center for property owners to manage their portfolio efficiently.*
+*   **Portfolio Intelligence**: A real-time Executive Dashboard tracking Revenue, Occupancy Rates, and Active Leases.
+*   **Operational Control**: Centralized management of Properties, Units, and Tenant records.
+*   **Maintenance Hub**: A ticketing system to track, prioritize, and resolve maintenance issues (Leaks, Repairs, etc.).
+*   **Lease Management**: Digital handling of lease lifecycles, from inquiry to termination.
+*   **Visual Planner**: A "Blueprint" tool to organize unit layouts spatially.
 
-This project uses [`next/font`](https://nextjs.org/docs/app/building-your-application/optimizing/fonts) to automatically optimize and load [Geist](https://vercel.com/font), a new font family for Vercel.
+### 🏠 2. The Tenant Portal (Living Experience)
+*A modern interface for residents to manage their home life.* (In Development)
+*   **Discovery**: Browse available units with verified details.
+*   **Payments**: Seamless rent payments and history tracking.
+*   **Service Requests**: One-tap submission of maintenance tickets with status updates.
+*   **Community**: Direct communication channel with property management.
 
-## Learn More
+---
 
-To learn more about Next.js, take a look at the following resources:
+## 🛠 Functional Architecture
 
-- [Next.js Documentation](https://nextjs.org/docs) - learn about Next.js features and API.
-- [Learn Next.js](https://nextjs.org/learn) - an interactive Next.js tutorial.
+The platform is built on a **Relational Data Model** (PostgreSQL) to ensure strict data integrity between the two distinct user roles.
 
-You can check out [the Next.js GitHub repository](https://github.com/vercel/next.js) - your feedback and contributions are welcome!
+### Core Systems:
+*   **Role-Based Access Control (RBAC)**: Secure separation of data. Landlords see their assets; Tenants see their homes.
+*   **Real-time Synchronization**: Updates to unit status or maintenance tickets reflect instantly for both parties.
+*   **Financial Tracking**: Aggregates unit-level financial data into portfolio-level insights.
 
-## Deploy on Vercel
+## 🚀 Tech Stack
 
-The easiest way to deploy your Next.js app is to use the [Vercel Platform](https://vercel.com/new?utm_medium=default-template&filter=next.js&utm_source=create-next-app&utm_campaign=create-next-app-readme) from the creators of Next.js.
+*   **Frontend**: [Next.js 15](https://nextjs.org/) (React Server Components).
+*   **Backend / Database**: [Supabase](https://supabase.com/) (PostgreSQL + Auth + Realtime).
+*   **Design System**: Custom CSS Modules + Glassmorphism Aesthetics.
 
-Check out our [Next.js deployment documentation](https://nextjs.org/docs/app/building-your-application/deploying) for more details.
+## ⚡ Getting Started
+
+1.  **Clone & Install**:
+    ```bash
+    git clone [repo-url]
+    npm install
+    ```
+2.  **Environment Setup**:
+    *   Configure Supabase keys in `.env.local`.
+    *   Run the schemas in `supabase_schema.sql` to initialize Tables, RLS Policies, and Triggers.
+3.  **Launch**:
+    ```bash
+    npm run dev
+    ```
