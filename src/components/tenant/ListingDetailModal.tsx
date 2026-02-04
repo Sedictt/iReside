@@ -121,41 +121,56 @@ export default function ListingDetailModal({ listingId, onClose }: ListingDetail
         <div className={styles.modalOverlay} onClick={onClose}>
             <div className={styles.modal} onClick={e => e.stopPropagation()}>
                 <button className={styles.closeBtn} onClick={onClose}>
-                    <X size={20} />
+                    <X size={24} />
                 </button>
 
                 {isLoading ? (
                     <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', height: '100%', width: '100%' }}>
-                        <Loader2 className={styles.spinner} size={32} />
+                        <Loader2 className={styles.spinner} size={40} color="var(--primary)" />
                     </div>
                 ) : (
-                    <div className={styles.modalBody}>
-                        {/* Left Side: Gallery */}
-                        <div className={styles.gallerySection}>
-                            <div className={styles.mainPhoto}>
+                    <>
+                        {/* LEFT: Immersive Gallery */}
+                        <div className={styles.galleryColumn}>
+                            <div className={styles.mainImageContainer}>
                                 {listing?.listing_photos && listing.listing_photos.length > 0 ? (
-                                    <img
-                                        src={listing.listing_photos[currentPhotoIndex].url}
-                                        alt={listing.listing_photos[currentPhotoIndex].caption || listing.title}
-                                    />
+                                    <>
+                                        <img
+                                            src={listing.listing_photos[currentPhotoIndex].url}
+                                            alt={listing.listing_photos[currentPhotoIndex].caption || listing.title}
+                                            className={styles.mainImage}
+                                        />
+                                        <div className={styles.galleryOverlay}>
+                                            <div className={styles.galleryCounter}>
+                                                {currentPhotoIndex + 1} / {listing.listing_photos.length}
+                                            </div>
+                                            {listing.listing_photos[currentPhotoIndex].caption && (
+                                                <p>{listing.listing_photos[currentPhotoIndex].caption}</p>
+                                            )}
+                                        </div>
+                                    </>
                                 ) : (
-                                    <div style={{ color: 'white' }}>No Photos Available</div>
+                                    <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', height: '100%', color: 'white' }}>
+                                        No Photos Available
+                                    </div>
                                 )}
 
+                                {/* Navigation Arrows */}
                                 {listing?.listing_photos && listing.listing_photos.length > 1 && (
                                     <>
-                                        <button className={`${styles.galleryNav} ${styles.prev}`} onClick={prevPhoto}>
+                                        <button className={`${styles.navBtn} ${styles.prevBtn}`} onClick={prevPhoto}>
                                             <ChevronLeft size={24} />
                                         </button>
-                                        <button className={`${styles.galleryNav} ${styles.next}`} onClick={nextPhoto}>
+                                        <button className={`${styles.navBtn} ${styles.nextBtn}`} onClick={nextPhoto}>
                                             <ChevronRight size={24} />
                                         </button>
                                     </>
                                 )}
                             </div>
 
+                            {/* Thumbnail Strip */}
                             {listing?.listing_photos && listing.listing_photos.length > 1 && (
-                                <div className={styles.photoTabs}>
+                                <div className={styles.thumbnailStrip}>
                                     {listing.listing_photos.map((photo, idx) => (
                                         <div
                                             key={photo.id}
@@ -169,89 +184,85 @@ export default function ListingDetailModal({ listingId, onClose }: ListingDetail
                             )}
                         </div>
 
-                        {/* Right Side: Content */}
-                        <div className={styles.contentSection}>
-                            <span className={styles.typeBadge}>
-                                {listing ? (propertyTypeLabels[listing.property_type] || listing.property_type) : ''}
-                            </span>
-                            <h2 className={styles.title}>{listing?.title}</h2>
-                            {listing?.headline && <p className={styles.headline}>{listing.headline}</p>}
+                        {/* RIGHT: Content & Details */}
+                        <div className={styles.contentColumn}>
+                            <div className={styles.contentHeader}>
+                                <div className={styles.breadCrumb}>
+                                    {listing ? (propertyTypeLabels[listing.property_type] || listing.property_type) : 'Property'}
+                                    <span style={{ color: '#cbd5e1' }}>•</span>
+                                    <span>ID: {listingId.slice(0, 8)}</span>
+                                </div>
+                                <h2 className={styles.title}>{listing?.title}</h2>
+                                <div className={styles.location}>
+                                    <MapPin size={18} />
+                                    {listing?.display_address || "Address Hidden"}, {listing?.city}
+                                </div>
 
-                            <div className={styles.priceDisplay}>
-                                {listing?.price_display ? (
-                                    <span className={styles.priceValue}>{listing.price_display}</span>
-                                ) : listing?.price_range_min ? (
-                                    <>
-                                        <span className={styles.priceValue}>
-                                            ₱{listing.price_range_min.toLocaleString()}
-                                            {listing.price_range_max && ` - ${listing.price_range_max.toLocaleString()}`}
+                                <div className={styles.statsRow}>
+                                    <div className={styles.statItem}>
+                                        <span className={styles.statValue}>
+                                            <Users size={18} color="var(--primary)" />
+                                            {listing?.available_units}
                                         </span>
-                                        <span className={styles.priceUnit}>/mo</span>
-                                    </>
-                                ) : (
-                                    <span style={{ fontSize: '1.2rem', color: '#64748b' }}>Contact for price</span>
-                                )}
-                            </div>
-
-                            <div className={styles.gridInfo}>
-                                <div className={styles.gridItem}>
-                                    <span className={styles.gridLabel}>Available Units</span>
-                                    <span className={styles.gridValue}>
-                                        <Users size={16} /> {listing?.available_units} units
-                                    </span>
-                                </div>
-                                <div className={styles.gridItem}>
-                                    <span className={styles.gridLabel}>Min Lease</span>
-                                    <span className={styles.gridValue}>
-                                        <Clock size={16} /> {listing?.min_lease_months} months
-                                    </span>
-                                </div>
-                                <div className={styles.gridItem}>
-                                    <span className={styles.gridLabel}>Deposit</span>
-                                    <span className={styles.gridValue}>
-                                        <DollarSign size={16} /> {listing?.deposit_months} mo.
-                                    </span>
-                                </div>
-                                <div className={styles.gridItem}>
-                                    <span className={styles.gridLabel}>Advance</span>
-                                    <span className={styles.gridValue}>
-                                        <DollarSign size={16} /> {listing?.advance_months} mo.
-                                    </span>
+                                        <span className={styles.statLabel}>Available Units</span>
+                                    </div>
+                                    <div className={styles.statItem}>
+                                        <span className={styles.statValue}>
+                                            <DollarSign size={18} color="var(--primary)" />
+                                            {listing?.deposit_months}mo
+                                        </span>
+                                        <span className={styles.statLabel}>Deposit</span>
+                                    </div>
+                                    <div className={styles.statItem}>
+                                        <span className={styles.statValue}>
+                                            <Clock size={18} color="var(--primary)" />
+                                            {listing?.min_lease_months}mo+
+                                        </span>
+                                        <span className={styles.statLabel}>Min Lease</span>
+                                    </div>
                                 </div>
                             </div>
 
+                            {/* Description */}
+                            <div className={styles.section}>
+                                <h3 className={styles.sectionTitle}>About this property</h3>
+                                <div className={styles.description}>
+                                    {listing?.description || "No description provided."}
+                                </div>
+                            </div>
+
+                            {/* Amenities */}
                             {listing?.listing_amenities && listing.listing_amenities.length > 0 && (
-                                <>
-                                    <h3 className={styles.sectionTitle}>Amenities</h3>
-                                    <div className={styles.amenityGrid}>
+                                <div className={styles.section}>
+                                    <h3 className={styles.sectionTitle}>Amenities & Features</h3>
+                                    <div className={styles.amenitiesGrid}>
                                         {listing.listing_amenities.map((item, i) => (
-                                            <div key={i} className={styles.amenityChip}>
-                                                <Check size={14} color="#16a34a" />
+                                            <div key={i} className={styles.amenityItem}>
+                                                <div className={styles.amenityIcon}>
+                                                    <Check size={18} />
+                                                </div>
                                                 {item.amenities?.name}
                                             </div>
                                         ))}
                                     </div>
-                                </>
+                                </div>
                             )}
 
-                            <h3 className={styles.sectionTitle}>About this property</h3>
-                            <div className={styles.description}>
-                                {listing?.description || "No description provided."}
-                            </div>
-
-                            <div className={styles.actionFooter}>
-                                <button className={styles.contactBtn}>
-                                    <MessageCircle size={18} />
-                                    Send Inquiry
+                            {/* Sticky Footer Action */}
+                            <div className={styles.footerAction}>
+                                <div className={styles.priceBlock}>
+                                    <span className={styles.price}>
+                                        {listing?.price_display || (listing?.price_range_min ? `₱${listing.price_range_min.toLocaleString()}` : 'Contact Us')}
+                                    </span>
+                                    <span className={styles.priceSub}>per month</span>
+                                </div>
+                                <button className={styles.bookBtn}>
+                                    Inquire Now
+                                    <MessageCircle size={20} />
                                 </button>
-                                {listing?.show_phone && listing.contact_phone && (
-                                    <a href={`tel:${listing.contact_phone}`} className={styles.phoneLink}>
-                                        <Phone size={20} />
-                                    </a>
-                                )}
                             </div>
                         </div>
-                    </div>
+                    </>
                 )}
             </div>
         </div>

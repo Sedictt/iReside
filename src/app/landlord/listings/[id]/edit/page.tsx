@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { useParams, useRouter } from "next/navigation";
+import dynamic from "next/dynamic";
 import {
     ArrowLeft,
     Save,
@@ -25,6 +26,12 @@ import {
     Clock,
     BadgeCheck
 } from "lucide-react";
+
+// Dynamically import Map to prevent SSR issues
+const LocationPickerMap = dynamic(() => import('@/components/landlord/LocationPickerMap'), {
+    ssr: false,
+    loading: () => <div style={{ height: '300px', width: '100%', background: '#f8fafc', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>Loading Map...</div>
+});
 import { createClient } from "@/utils/supabase/client";
 import Link from "next/link";
 import styles from "./edit.module.css";
@@ -243,6 +250,36 @@ export default function EditListingPage() {
 
         if (publish) {
             alert('Listing published successfully!');
+        }
+    }
+
+    async function geocodeAddress() {
+        if (!listing.city) return;
+
+        // Construct query: Display Address + City + Barangay + "Philippines"
+        const queryParts = [listing.display_address, listing.barangay, listing.city, 'Philippines']
+            .filter(part => part && part.trim() !== '');
+
+        const query = queryParts.join(', ');
+
+        try {
+            const response = await fetch(
+                `https://nominatim.openstreetmap.org/search?format=json&q=${encodeURIComponent(query)}&limit=1`,
+                { headers: { 'Accept-Language': 'en' } }
+            );
+            const data = await response.json();
+
+            if (data && data.length > 0) {
+                const { lat, lon } = data[0];
+                updateField('lat', parseFloat(lat));
+                updateField('lng', parseFloat(lon));
+                alert(`Location found: ${data[0].display_name}`);
+            } else {
+                alert('Could not find coordinates for this address. Please try adding more details or manually enter lat/long.');
+            }
+        } catch (error) {
+            console.error('Geocoding error:', error);
+            alert('Error fetching coordinates. Please try again.');
         }
     }
 
@@ -552,7 +589,36 @@ export default function EditListingPage() {
                                     />
                                 </div>
                             </div>
-                            <span className={styles.hint}>Coordinates are used for map display</span>
+                            <div style={{ display: 'flex', gap: '1rem', alignItems: 'center', marginBottom: '1.5rem' }}>
+                                <button
+                                    type="button"
+                                    className={styles.secondaryBtn}
+                                    onClick={geocodeAddress}
+                                    disabled={!listing.city}
+                                    style={{ fontSize: '0.875rem', padding: '0.5rem 1rem' }}
+                                >
+                                    <MapPin size={14} style={{ marginRight: 6 }} />
+                                    Get Coordinates from Address
+                                </button>
+                                <span className={styles.hint} style={{ marginTop: 0 }}>
+                                    (Required for map display)
+                                </span>
+                            </div>
+
+                            <div className={styles.formGroup}>
+                                <label>Pin Location on Map</label>
+                                <div style={{ height: '350px', width: '100%', borderRadius: '8px', overflow: 'hidden', border: '1px solid var(--border)' }}>
+                                    <LocationPickerMap
+                                        lat={listing.lat || null}
+                                        lng={listing.lng || null}
+                                        onLocationSelect={(lat, lng) => {
+                                            updateField('lat', lat);
+                                            updateField('lng', lng);
+                                        }}
+                                    />
+                                </div>
+                                <span className={styles.hint}>Click on the map or drag the pin to set the precise location</span>
+                            </div>
                         </div>
                     )}
 

@@ -60,7 +60,8 @@ export default function TenantSearch() {
 
     const [activeType, setActiveType] = useState('all');
     const [mapView, setMapView] = useState(true);
-    const [selectedPropId, setSelectedPropId] = useState<string | null>(initialListingId);
+    const [selectedPropId, setSelectedPropId] = useState<string | null>(initialListingId); // Used for Modal
+    const [focusedPropId, setFocusedPropId] = useState<string | null>(null); // Used for Map highlight/focus
 
     // Real Data State
     const [properties, setProperties] = useState<Property[]>([]);
@@ -68,6 +69,8 @@ export default function TenantSearch() {
 
     // Default Center (Valenzuela City)
     const [mapCenter, setMapCenter] = useState<[number, number]>([14.6819, 120.9772]);
+    // Search Origin (Separate from map center to prevent re-fetching on hover/pan)
+    const [searchOrigin, setSearchOrigin] = useState<[number, number]>([14.6819, 120.9772]);
     const [userLocation, setUserLocation] = useState<[number, number] | null>(null);
 
     // Search State
@@ -80,6 +83,10 @@ export default function TenantSearch() {
     // Filters
     const [priceRange, setPriceRange] = useState<number>(10000);
     const [selectedAmenities, setSelectedAmenities] = useState<string[]>([]);
+
+    // Search Radius State
+    const [searchRadius, setSearchRadius] = useState<number>(3000);
+    const [showSearchRadius, setShowSearchRadius] = useState<boolean>(true);
 
     const searchRef = useRef<HTMLDivElement>(null);
     const debounceTimeout = useRef<NodeJS.Timeout | null>(null);
@@ -126,6 +133,7 @@ export default function TenantSearch() {
         const lat = parseFloat(location.lat);
         const lng = parseFloat(location.lon);
         setMapCenter([lat, lng]);
+        setSearchOrigin([lat, lng]);
         setSelectedLocation(location.display_name.split(',')[0]);
         setSearchQuery('');
         setShowDropdown(false);
@@ -185,8 +193,8 @@ export default function TenantSearch() {
                     : `linear-gradient(135deg, ${getRandomColor()} 0%, ${getRandomColor()} 100%)`;
 
                 // Calculate pseudo-distance (mock for now as we don't have user's exact starting point or routing)
-                // In a real app, this would calculate distance from `mapCenter`
-                const distanceVal = calculateDistance(mapCenter[0], mapCenter[1], p.lat || mapCenter[0], p.lng || mapCenter[1]);
+                // In a real app, this would calculate distance from `searchOrigin`
+                const distanceVal = calculateDistance(searchOrigin[0], searchOrigin[1], p.lat || searchOrigin[0], p.lng || searchOrigin[1]);
 
                 return {
                     id: p.id,
@@ -197,8 +205,8 @@ export default function TenantSearch() {
                     distance: distanceVal < 1 ? `${(distanceVal * 1000).toFixed(0)}m` : `${distanceVal.toFixed(1)}km`,
                     features: features,
                     image: image,
-                    lat: p.lat || mapCenter[0] + (Math.random() - 0.5) * 0.02, // Fallback random pos if no lat/lng
-                    lng: p.lng || mapCenter[1] + (Math.random() - 0.5) * 0.02,
+                    lat: p.lat || searchOrigin[0] + (Math.random() - 0.5) * 0.02, // Fallback random pos if no lat/lng
+                    lng: p.lng || searchOrigin[1] + (Math.random() - 0.5) * 0.02,
                     description: p.description
                 };
             });
@@ -227,7 +235,7 @@ export default function TenantSearch() {
             setProperties(filtered);
         }
         setLoading(false);
-    }, [mapCenter, activeType, priceRange, selectedAmenities]);
+    }, [searchOrigin, activeType, priceRange, selectedAmenities]);
 
     useEffect(() => {
         fetchProperties();
@@ -260,6 +268,7 @@ export default function TenantSearch() {
             navigator.geolocation.getCurrentPosition((position) => {
                 const { latitude, longitude } = position.coords;
                 setMapCenter([latitude, longitude]);
+                setSearchOrigin([latitude, longitude]);
                 setUserLocation([latitude, longitude]);
             }, (error) => {
                 console.error("Error getting location:", error);
@@ -370,47 +379,85 @@ export default function TenantSearch() {
             <div className={styles.contentArea}>
                 {/* Sidebar Filters */}
                 <aside className={styles.filterSidebar}>
-                    <div className={styles.filterSection}>
-                        <h3>Category</h3>
-                        <div className={styles.categorySelect}>
-                            <div
-                                className={`${styles.categoryOption} ${activeType === 'apartments' ? styles.selected : ''}`}
-                                onClick={() => setActiveType(activeType === 'apartments' ? 'all' : 'apartments')}
-                            >
-                                🏢 Apartments
-                            </div>
-                            <div
-                                className={`${styles.categoryOption} ${activeType === 'dorms' ? styles.selected : ''}`}
-                                onClick={() => setActiveType(activeType === 'dorms' ? 'all' : 'dorms')}
-                            >
-                                🎓 Dorms
+                    <div className={styles.filterScroll}>
+                        <div className={styles.filterSection}>
+                            <h3>Category</h3>
+                            <div className={styles.categorySelect}>
+                                <div
+                                    className={`${styles.categoryOption} ${activeType === 'apartments' ? styles.selected : ''}`}
+                                    onClick={() => setActiveType(activeType === 'apartments' ? 'all' : 'apartments')}
+                                >
+                                    <span style={{ fontSize: '1.5rem' }}>🏢</span>
+                                    <span>Apartments</span>
+                                </div>
+                                <div
+                                    className={`${styles.categoryOption} ${activeType === 'dorms' ? styles.selected : ''}`}
+                                    onClick={() => setActiveType(activeType === 'dorms' ? 'all' : 'dorms')}
+                                >
+                                    <span style={{ fontSize: '1.5rem' }}>🎓</span>
+                                    <span>Dorms</span>
+                                </div>
                             </div>
                         </div>
-                    </div>
 
-                    <div className={styles.filterSection}>
-                        <h3>Amenities</h3>
-                        <div className={styles.checkboxList}>
-                            {['Wifi', 'Parking', 'Gym', 'Pool', 'Air Conditioning', 'Pets Allowed'].map((item, i) => (
-                                <div
-                                    key={item}
-                                    className={`${styles.checkboxItem} ${selectedAmenities.includes(item) ? styles.checked : ''}`}
-                                    onClick={() => toggleAmenity(item)}
-                                >
-                                    <div className={styles.checkboxLabel}>
-                                        {item}
+                        <div className={styles.filterSection}>
+                            <h3>Amenities</h3>
+                            <div className={styles.checkboxList}>
+                                {['Wifi', 'Parking', 'Gym', 'Pool', 'Air Conditioning', 'Pets Allowed'].map((item, i) => (
+                                    <div
+                                        key={item}
+                                        className={`${styles.checkboxItem} ${selectedAmenities.includes(item) ? styles.checked : ''}`}
+                                        onClick={() => toggleAmenity(item)}
+                                    >
+                                        <div className={styles.checkboxLabel}>
+                                            <div className={styles.customCheckbox}>
+                                                {selectedAmenities.includes(item) && <Check size={14} strokeWidth={3} />}
+                                            </div>
+                                            {item}
+                                        </div>
                                     </div>
+                                ))}
+                            </div>
+                        </div>
+
+                        <div className={styles.filterSection}>
+                            <h3>Search Distance</h3>
+                            <div
+                                className={`${styles.checkboxItem} ${showSearchRadius ? styles.checked : ''}`}
+                                onClick={() => setShowSearchRadius(!showSearchRadius)}
+                            >
+                                <div className={styles.checkboxLabel}>
                                     <div className={styles.customCheckbox}>
-                                        {selectedAmenities.includes(item) && <Check size={12} />}
+                                        {showSearchRadius && <Check size={14} strokeWidth={3} />}
+                                    </div>
+                                    Show Proximity Bubble
+                                </div>
+                            </div>
+
+                            {showSearchRadius && (
+                                <div style={{ marginTop: '1rem', padding: '0 0.5rem' }}>
+                                    <input
+                                        type="range"
+                                        min="500"
+                                        max="10000"
+                                        step="500"
+                                        value={searchRadius}
+                                        onChange={(e) => setSearchRadius(parseInt(e.target.value))}
+                                        className={styles.rangeSlider}
+                                    />
+                                    <div className={styles.rangeInputs} style={{ marginTop: '0.5rem', fontSize: '0.85rem' }}>
+                                        <span>{(searchRadius / 1000).toFixed(1)} km</span>
                                     </div>
                                 </div>
-                            ))}
+                            )}
                         </div>
-                    </div>
 
-                    <div className={styles.filterSection}>
-                        <h3>Price Range <span style={{ fontSize: '0.8rem', fontWeight: 400, color: 'var(--muted-foreground)' }}>Per month</span></h3>
-                        <div style={{ padding: '0 0.5rem' }}>
+                        <div className={styles.filterSection}>
+                            <h3>Price Range</h3>
+                            <div className={styles.rangeInputs}>
+                                <span>₱0</span>
+                                <span>₱{priceRange.toLocaleString()}</span>
+                            </div>
                             <input
                                 type="range"
                                 min="1000"
@@ -419,12 +466,7 @@ export default function TenantSearch() {
                                 value={priceRange}
                                 onChange={(e) => setPriceRange(parseInt(e.target.value))}
                                 className={styles.rangeSlider}
-                                style={{ width: '100%', accentColor: 'var(--foreground)' }}
                             />
-                        </div>
-                        <div className={styles.rangeInputs}>
-                            <span>₱0</span>
-                            <span>Max: ₱{priceRange.toLocaleString()}</span>
                         </div>
                     </div>
                 </aside>
@@ -437,7 +479,13 @@ export default function TenantSearch() {
                                 properties={properties}
                                 center={mapCenter}
                                 userLocation={userLocation}
-                                onMarkerClick={(id) => setSelectedPropId(String(id))}
+                                onMarkerClick={(id) => {
+                                    setFocusedPropId(String(id));
+                                }}
+                                focusedId={focusedPropId}
+                                searchOrigin={searchOrigin}
+                                searchRadius={searchRadius}
+                                showRadius={showSearchRadius}
                             />
 
                             {/* Floating "Search as I move" */}
@@ -450,9 +498,23 @@ export default function TenantSearch() {
 
                     {/* Results Overlay (Right Side on Map View, Full width on List View) */}
                     <div className={mapView ? styles.resultsOverlay : styles.resultsListFull}>
-                        <div style={{ display: 'flex', justifyContent: 'space-between', padding: '0 1rem', marginBottom: '1rem' }}>
-                            <span style={{ fontWeight: 600 }}>{properties.length} Results</span>
-                            <span style={{ color: 'var(--muted-foreground)', fontSize: '0.9rem', cursor: 'pointer' }}>Popular first ↕</span>
+                        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '0 0.5rem', marginBottom: '1rem', pointerEvents: 'auto' }}>
+                            <span style={{ fontWeight: 700, fontSize: '1.1rem' }}>{properties.length} Properties</span>
+                            <button style={{
+                                background: 'white',
+                                border: '1px solid var(--border)',
+                                padding: '0.4rem 0.8rem',
+                                borderRadius: '8px',
+                                fontSize: '0.85rem',
+                                color: 'var(--muted-foreground)',
+                                cursor: 'pointer',
+                                display: 'flex',
+                                alignItems: 'center',
+                                gap: '4px',
+                                boxShadow: '0 2px 4px rgba(0,0,0,0.05)'
+                            }}>
+                                Popular <ArrowLeft size={12} style={{ transform: 'rotate(-90deg)' }} />
+                            </button>
                         </div>
 
                         <div className={mapView ? styles.resultsList : styles.resultsGrid}>
@@ -461,10 +523,11 @@ export default function TenantSearch() {
                             ) : properties.map(prop => (
                                 <div
                                     key={prop.id}
-                                    className={styles.resultCard}
-                                    onClick={() => setSelectedPropId(prop.id)}
-                                    onMouseEnter={() => matchMedia('(min-width: 1024px)').matches && setMapCenter([prop.lat, prop.lng])}
-                                    style={selectedPropId === prop.id ? { boxShadow: '0 0 0 2px var(--primary)' } : {}}
+                                    className={`${styles.resultCard} ${focusedPropId === prop.id ? styles.active : ''}`}
+                                    onClick={() => {
+                                        setFocusedPropId(prop.id);
+                                        setMapCenter([prop.lat, prop.lng]);
+                                    }}
                                 >
                                     <div className={styles.cardImages}>
                                         <div
@@ -509,6 +572,19 @@ export default function TenantSearch() {
                                                 <span className={styles.cardChip}>+{prop.features.length - 3}</span>
                                             )}
                                         </div>
+
+                                        {/* View Details Button - Shows when focused or in grid view */}
+                                        {(focusedPropId === prop.id || !mapView) && (
+                                            <button
+                                                className={styles.viewDetailsBtn}
+                                                onClick={(e) => {
+                                                    e.stopPropagation(); // Prevent re-triggering card click
+                                                    setSelectedPropId(prop.id);
+                                                }}
+                                            >
+                                                See Details
+                                            </button>
+                                        )}
                                     </div>
                                 </div>
                             ))}
