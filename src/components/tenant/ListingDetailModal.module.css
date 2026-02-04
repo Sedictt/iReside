@@ -385,3 +385,178 @@
         padding-right: 1.5rem;
     }
 }
+
+/* Inquiry Form Styles */
+.inquiryFormContainer {
+    padding: 2rem 2.5rem;
+    display: flex;
+    flex-direction: column;
+    height: 100%;
+}
+
+.inquiryHeader {
+    margin-bottom: 2rem;
+}
+
+.inquiryHeader h3 {
+    font-size: 1.5rem;
+    font-weight: 700;
+    color: #0f172a;
+    margin-bottom: 0.5rem;
+}
+
+.inquiryHeader p {
+    color: #64748b;
+    font-size: 1rem;
+}
+
+.backBtn {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.25rem;
+    background: none;
+    border: none;
+    color: var(--primary);
+    font-weight: 600;
+    cursor: pointer;
+    padding: 0;
+    margin-bottom: 1rem;
+    font-size: 0.9rem;
+    transition: all 0.2s;
+}
+
+.backBtn:hover {
+    transform: translateX(-4px);
+}
+
+.inquiryForm {
+    display: flex;
+    flex-direction: column;
+    gap: 1.25rem;
+    flex: 1;
+}
+
+.formRow {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 1rem;
+}
+
+.formGroup {
+    display: flex;
+    flex-direction: column;
+    gap: 0.5rem;
+}
+
+.formGroup label {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    font-size: 0.9rem;
+    font-weight: 500;
+    color: #334155;
+}
+
+.formGroup input,
+.formGroup textarea {
+    padding: 0.75rem 1rem;
+    border-radius: 10px;
+    border: 1px solid #e2e8f0;
+    background: #f8fafc;
+    font-size: 0.95rem;
+    transition: all 0.2s;
+    font-family: inherit;
+}
+
+.formGroup input:focus,
+.formGroup textarea:focus {
+    outline: none;
+    border-color: var(--primary);
+    background: #fff;
+    box-shadow: 0 0 0 3px var(--primary-glow);
+}
+
+.formGroup textarea {
+    resize: none;
+    min-height: 100px;
+}
+
+.submitBtn {
+    background: var(--primary);
+    color: white;
+    padding: 1rem 2rem;
+    border-radius: 12px;
+    font-weight: 600;
+    font-size: 1rem;
+    border: none;
+    cursor: pointer;
+    transition: all 0.2s;
+    box-shadow: 0 4px 12px var(--primary-glow);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 0.75rem;
+    margin-top: auto;
+}
+
+.submitBtn:hover:not(:disabled) {
+    background: var(--primary-hover);
+    transform: translateY(-2px);
+}
+
+.submitBtn:disabled {
+    opacity: 0.7;
+    cursor: not-allowed;
+}
+
+.errorBanner {
+    background: #fef2f2;
+    color: #dc2626;
+    padding: 0.75rem 1rem;
+    border-radius: 10px;
+    display: flex;
+    align-items: center;
+    gap: 0.75rem;
+    font-size: 0.9rem;
+    margin-bottom: 1rem;
+}
+
+.successMessage {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    text-align: center;
+    height: 100%;
+    gap: 1rem;
+    animation: fadeIn 0.4s ease-out;
+}
+
+.successMessage h3 {
+    font-size: 1.5rem;
+    color: #059669;
+}
+
+.successMessage p {
+    color: #64748b;
+}
+
+.spinner {
+    animation: spin 1s linear infinite;
+}
+
+@keyframes spin {
+    to {
+        transform: rotate(360deg);
+    }
+}
+
+@media (max-width: 900px) {
+    .formRow {
+        grid-template-columns: 1fr;
+    }
+
+    .inquiryFormContainer {
+        padding: 1.5rem;
+    }
+}

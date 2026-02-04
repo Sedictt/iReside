@@ -48,8 +48,8 @@ export default function LandingPage() {
     getUser();
   }, []);
 
-  const tenantCtaHref = user ? "/tenant/dashboard" : "/login?role=tenant";
-  const landlordCtaHref = user ? "/landlord/dashboard" : "/login?role=landlord";
+  const tenantCtaHref = user ? "/tenant/search" : "/login";
+  const landlordCtaHref = user ? "/account" : "/login";
 
   return (
     <main className={styles.main}>
@@ -82,8 +82,8 @@ export default function LandingPage() {
                 </Link>
               </>
             ) : (
-              <Link href="/landlord/dashboard" className={styles.getStartedBtn}>
-                Dashboard
+              <Link href="/account" className={styles.getStartedBtn}>
+                My Account
               </Link>
             )}
           </div>
@@ -111,8 +111,8 @@ export default function LandingPage() {
                 </Link>
               </>
             ) : (
-              <Link href="/landlord/dashboard" className={styles.getStartedBtn}>
-                Dashboard
+              <Link href="/account" className={styles.getStartedBtn}>
+                My Account
               </Link>
             )}
           </div>
@@ -498,9 +498,9 @@ export default function LandingPage() {
           <div className={styles.stepsColumn}>
             <h3>For Landlords</h3>
             <div className={styles.stepList}>
-              <Step number={1} title="Register" desc="Create your landlord account." />
-              <Step number={2} title="Blueprint" desc="map out your units visually." />
-              <Step number={3} title="Manage" desc="Automate payments and tenants." />
+              <Step number={1} title="Sign Up" desc="Create a free account in seconds." />
+              <Step number={2} title="Apply" desc="Submit landlord verification documents." />
+              <Step number={3} title="Manage" desc="Once approved, manage properties with ease." />
             </div>
           </div>
         </div>

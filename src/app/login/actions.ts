@@ -28,7 +28,6 @@ export async function signup(formData: FormData) {
     const email = formData.get('email') as string
     const password = formData.get('password') as string
     const full_name = formData.get('full_name') as string
-    const role = formData.get('role') as string
 
     const { error } = await supabase.auth.signUp({
         email,
@@ -36,7 +35,7 @@ export async function signup(formData: FormData) {
         options: {
             data: {
                 full_name,
-                role,
+                // Role is managed via profiles table - all users start as 'tenant'
             },
             emailRedirectTo: `${process.env.NEXT_PUBLIC_SITE_URL || 'http://localhost:3000'}/auth/callback`,
         },

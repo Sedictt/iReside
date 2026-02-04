@@ -3,9 +3,10 @@
 import { Suspense, useState } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import { login, signup } from "./actions";
-import { Mail, Lock, User, Building2, UserCircle, ArrowRight, Loader2, Info } from "lucide-react";
+import { Mail, Lock, User, ArrowRight, Loader2, Info, Building2 } from "lucide-react";
 import styles from "./login.module.css";
 import { useSearchParams } from "next/navigation";
+import Link from "next/link";
 
 export default function LoginPage() {
     return (
@@ -32,12 +33,17 @@ function LoginPageInner() {
                 animate={{ opacity: 1, y: 0 }}
                 className={styles.authCard}
             >
+                <Link href="/" className={styles.backLink}>
+                    <Building2 size={20} />
+                    <span>TenantPro</span>
+                </Link>
+
                 <div className={styles.header}>
                     <h1 className={styles.title}>{isLogin ? "Welcome Back" : "Create Account"}</h1>
                     <p className={styles.subtitle}>
                         {isLogin
-                            ? "Sign in to manage your properties or units"
-                            : "Join the modern way of living"}
+                            ? "Sign in to access your account"
+                            : "Start your journey with TenantPro"}
                     </p>
                 </div>
 
@@ -66,35 +72,13 @@ function LoginPageInner() {
                         action={isLogin ? login : signup}
                     >
                         {!isLogin && (
-                            <>
-                                <div className={styles.inputGroup}>
-                                    <label>Full Name</label>
-                                    <div className={styles.inputWrapper}>
-                                        <User size={18} className={styles.icon} />
-                                        <input name="full_name" type="text" placeholder="John Doe" required />
-                                    </div>
+                            <div className={styles.inputGroup}>
+                                <label>Full Name</label>
+                                <div className={styles.inputWrapper}>
+                                    <User size={18} className={styles.icon} />
+                                    <input name="full_name" type="text" placeholder="John Doe" required />
                                 </div>
-
-                                <div className={styles.inputGroup}>
-                                    <label>I am a...</label>
-                                    <div className={styles.roleGrid}>
-                                        <label className={styles.roleOption}>
-                                            <input type="radio" name="role" value="tenant" defaultChecked />
-                                            <div className={styles.roleCard}>
-                                                <UserCircle size={20} />
-                                                <span>Tenant</span>
-                                            </div>
-                                        </label>
-                                        <label className={styles.roleOption}>
-                                            <input type="radio" name="role" value="landlord" />
-                                            <div className={styles.roleCard}>
-                                                <Building2 size={20} />
-                                                <span>Landlord</span>
-                                            </div>
-                                        </label>
-                                    </div>
-                                </div>
-                            </>
+                            </div>
                         )}
 
                         <div className={styles.inputGroup}>
@@ -109,8 +93,11 @@ function LoginPageInner() {
                             <label>Password</label>
                             <div className={styles.inputWrapper}>
                                 <Lock size={18} className={styles.icon} />
-                                <input name="password" type="password" placeholder="••••••••" required />
+                                <input name="password" type="password" placeholder="••••••••" required minLength={6} />
                             </div>
+                            {!isLogin && (
+                                <span className={styles.hint}>Must be at least 6 characters</span>
+                            )}
                         </div>
 
                         <button type="submit" className={styles.submitBtn} disabled={isLoading}>
@@ -118,7 +105,7 @@ function LoginPageInner() {
                                 <Loader2 className={styles.spinner} size={20} />
                             ) : (
                                 <>
-                                    {isLogin ? "Sign In" : "Sign Up"}
+                                    {isLogin ? "Sign In" : "Create Account"}
                                     <ArrowRight size={18} />
                                 </>
                             )}
@@ -137,6 +124,13 @@ function LoginPageInner() {
                         </button>
                     </p>
                 </div>
+
+                {!isLogin && (
+                    <div className={styles.landlordNote}>
+                        <Building2 size={16} />
+                        <span>Want to list properties? You can apply to become a landlord after signing up.</span>
+                    </div>
+                )}
             </motion.div>
         </main>
     );
