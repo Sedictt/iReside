@@ -1,5 +1,5 @@
 "use client";
-import React, { useState, useEffect, useRef, useCallback } from 'react';
+import React, { useState, useEffect, useRef, useCallback, Suspense } from 'react';
 import {
     Search,
     MapPin,
@@ -54,7 +54,34 @@ interface LocationSuggestion {
 
 import { useRouter, useSearchParams } from 'next/navigation';
 
+// Loading fallback component
+function SearchLoading() {
+    return (
+        <div style={{
+            height: '100vh',
+            width: '100%',
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            background: '#f8fafc',
+            color: '#94a3b8'
+        }}>
+            <Loader2 size={32} className={styles.searchSpinner} />
+            <span style={{ marginLeft: '0.5rem' }}>Loading search...</span>
+        </div>
+    );
+}
+
+// Wrapper component with Suspense
 export default function TenantSearch() {
+    return (
+        <Suspense fallback={<SearchLoading />}>
+            <TenantSearchContent />
+        </Suspense>
+    );
+}
+
+function TenantSearchContent() {
     const searchParams = useSearchParams();
     const initialListingId = searchParams.get('id');
 
