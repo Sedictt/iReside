@@ -134,8 +134,11 @@ export default function TenantSearch() {
         const lng = parseFloat(location.lon);
         setMapCenter([lat, lng]);
         setSearchOrigin([lat, lng]);
-        setSelectedLocation(location.display_name.split(',')[0]);
-        setSearchQuery('');
+
+        const friendlyName = location.display_name.split(',')[0];
+        setSelectedLocation(friendlyName);
+        setSearchQuery(friendlyName); // Keep text in search bar
+
         setShowDropdown(false);
         setSearchResults([]);
     };
@@ -338,26 +341,7 @@ export default function TenantSearch() {
                 </div>
 
                 <div className={styles.headerActions}>
-                    <div className={styles.toggleGroup}>
-                        <button
-                            className={`${styles.toggleItem} ${activeType === 'all' ? styles.active : ''}`}
-                            onClick={() => setActiveType('all')}
-                        >
-                            <List size={16} /> All
-                        </button>
-                        <button
-                            className={`${styles.toggleItem} ${activeType === 'apartments' ? styles.active : ''}`}
-                            onClick={() => setActiveType('apartments')}
-                        >
-                            <Building size={16} /> Apartments
-                        </button>
-                        <button
-                            className={`${styles.toggleItem} ${activeType === 'dorms' ? styles.active : ''}`}
-                            onClick={() => setActiveType('dorms')}
-                        >
-                            <Home size={16} /> Dorms
-                        </button>
-                    </div>
+
 
                     <div className={styles.toggleGroup}>
                         <button
