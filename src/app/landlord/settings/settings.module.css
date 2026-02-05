@@ -419,6 +419,114 @@
     color: var(--muted-foreground);
 }
 
+/* Tenant Payment Methods */
+.paymentList {
+    display: flex;
+    flex-direction: column;
+    gap: 1rem;
+    margin-bottom: 2rem;
+}
+
+.paymentCard {
+    display: flex;
+    gap: 1.25rem;
+    align-items: center;
+    padding: 1rem;
+    border: 1px solid var(--border);
+    border-radius: 1rem;
+    background: #fff;
+}
+
+.paymentQr {
+    width: 96px;
+    height: 96px;
+    border-radius: 0.75rem;
+    overflow: hidden;
+    border: 1px solid var(--border);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    background: #f8fafc;
+}
+
+.paymentQr img {
+    width: 100%;
+    height: 100%;
+    object-fit: cover;
+}
+
+.paymentDetails {
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    gap: 0.35rem;
+}
+
+.paymentTitle {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    font-weight: 600;
+    color: var(--foreground);
+}
+
+.paymentMeta {
+    font-size: 0.85rem;
+    color: var(--muted-foreground);
+}
+
+.paymentActions {
+    display: flex;
+    flex-direction: column;
+    gap: 0.5rem;
+    align-items: flex-end;
+}
+
+.paymentStatus {
+    font-size: 0.75rem;
+    font-weight: 600;
+    padding: 0.25rem 0.65rem;
+    border-radius: 999px;
+}
+
+.emptyState {
+    padding: 1rem;
+    border-radius: 0.75rem;
+    background: #f8fafc;
+    color: var(--muted-foreground);
+    border: 1px dashed var(--border);
+    margin-bottom: 1.5rem;
+}
+
+.fileUpload {
+    position: relative;
+    border: 1px dashed var(--border);
+    border-radius: 0.75rem;
+    padding: 1rem;
+    background: #f8fafc;
+}
+
+.fileUpload input {
+    position: absolute;
+    inset: 0;
+    opacity: 0;
+    cursor: pointer;
+}
+
+.fileUploadInfo {
+    display: flex;
+    align-items: center;
+    gap: 0.75rem;
+    color: var(--muted-foreground);
+    font-size: 0.9rem;
+}
+
+.errorText {
+    color: #ef4444;
+    font-size: 0.85rem;
+    margin-top: 0.5rem;
+}
+
 /* Danger Zone */
 .dangerZone {
     border-color: #fee2e2;

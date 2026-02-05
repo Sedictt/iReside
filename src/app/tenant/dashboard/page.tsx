@@ -7,6 +7,9 @@ import {
     Calendar,
     Clock,
     CreditCard,
+    QrCode,
+    Upload,
+    X,
     Wrench,
     MessageSquare,
     AlertCircle,
@@ -39,9 +42,42 @@ type Lease = {
         property: {
             name: string;
             address: string;
+            landlord_id: string;
         } | null;
     } | null;
     signature_url?: string | null;
+};
+
+type PaymentMethod = {
+    id: string;
+    landlord_id: string;
+    label: string;
+    account_name: string | null;
+    account_number: string | null;
+    qr_url: string;
+    instructions: string | null;
+    is_active: boolean;
+};
+
+type Invoice = {
+    id: string;
+    landlord_id: string;
+    tenant_email: string | null;
+    amount: number;
+    due_date: string;
+    status: 'pending' | 'overdue' | 'paid';
+    description: string | null;
+};
+
+type PaymentSubmission = {
+    id: string;
+    invoice_id: string;
+    amount: number;
+    status: 'pending' | 'approved' | 'rejected';
+    created_at: string;
+    invoice?: {
+        description: string | null;
+    }[] | null;
 };
 
 type StatCardProps = {
@@ -55,6 +91,8 @@ type StatCardProps = {
 
 export default function TenantDashboard() {
     const [leases, setLeases] = useState<Lease[]>([]);
+    const [activeLease, setActiveLease] = useState<Lease | null>(null);
+    const [pendingLease, setPendingLease] = useState<Lease | null>(null);
     const [stats, setStats] = useState({
         rentAmount: "₱0",
         nextDue: "-",
@@ -63,6 +101,18 @@ export default function TenantDashboard() {
     });
     const [loading, setLoading] = useState(true);
     const [user, setUser] = useState<any>(null);
+
+    const [paymentMethods, setPaymentMethods] = useState<PaymentMethod[]>([]);
+    const [pendingInvoices, setPendingInvoices] = useState<Invoice[]>([]);
+    const [recentPayments, setRecentPayments] = useState<PaymentSubmission[]>([]);
+
+    const [isPaymentModalOpen, setIsPaymentModalOpen] = useState(false);
+    const [selectedInvoiceId, setSelectedInvoiceId] = useState('');
+    const [selectedPaymentMethodId, setSelectedPaymentMethodId] = useState('');
+    const [paymentReference, setPaymentReference] = useState('');
+    const [receiptFile, setReceiptFile] = useState<File | null>(null);
+    const [paymentError, setPaymentError] = useState('');
+    const [isSubmittingPayment, setIsSubmittingPayment] = useState(false);
 
     // Modal State
     const [selectedLease, setSelectedLease] = useState<Lease | null>(null);
@@ -89,7 +139,8 @@ export default function TenantDashboard() {
                     unit_number,
                     property:properties (
                         name,
-                        address
+                        address,
+                        landlord_id
                     )
                 )
             `)
@@ -108,7 +159,8 @@ export default function TenantDashboard() {
                     unit_number: item.unit.unit_number,
                     property: item.unit.property ? {
                         name: item.unit.property.name,
-                        address: item.unit.property.address
+                        address: item.unit.property.address,
+                        landlord_id: item.unit.property.landlord_id
                     } : null
                 } : null
             }));
@@ -117,10 +169,55 @@ export default function TenantDashboard() {
             // Calculate Stats
             const activeLease = formattedLeases.find(l => l.status === 'active');
             const pendingLease = formattedLeases.find(l => l.status === 'pending');
+            setActiveLease(activeLease || null);
+            setPendingLease(pendingLease || null);
+
+            const { data: invoicesData } = await supabase
+                .from('invoices')
+                .select('id, landlord_id, tenant_email, amount, due_date, status, description')
+                .eq('tenant_email', user.email)
+                .in('status', ['pending', 'overdue'])
+                .order('due_date', { ascending: true });
+
+            if (invoicesData) {
+                setPendingInvoices(invoicesData as Invoice[]);
+                if (!selectedInvoiceId && invoicesData.length > 0) {
+                    setSelectedInvoiceId(invoicesData[0].id);
+                }
+            }
+
+            const { data: paymentData } = await supabase
+                .from('payment_submissions')
+                .select('id, invoice_id, amount, status, created_at, invoice:invoices(description)')
+                .eq('tenant_id', user.id)
+                .order('created_at', { ascending: false })
+                .limit(5);
+
+            if (paymentData) {
+                setRecentPayments(paymentData as PaymentSubmission[]);
+            }
+
+            if (activeLease?.unit?.property?.landlord_id) {
+                const { data: methodsData } = await supabase
+                    .from('payment_methods')
+                    .select('*')
+                    .eq('landlord_id', activeLease.unit.property.landlord_id)
+                    .eq('is_active', true)
+                    .order('created_at', { ascending: false });
+
+                if (methodsData) {
+                    setPaymentMethods(methodsData as PaymentMethod[]);
+                    if (!selectedPaymentMethodId && methodsData.length > 0) {
+                        setSelectedPaymentMethodId(methodsData[0].id);
+                    }
+                }
+            }
 
             setStats({
                 rentAmount: activeLease ? `₱${activeLease.rent_amount.toLocaleString()}` : "₱0",
-                nextDue: activeLease ? "Feb 15, 2026" : "-", // Mocked due date for now
+                nextDue: invoicesData && invoicesData.length > 0
+                    ? new Date(invoicesData[0].due_date).toLocaleDateString()
+                    : "-",
                 leaseStatus: activeLease ? "Active" : (pendingLease ? "Pending Signature" : "None"),
                 requests: "0" // Mocked requests
             });
@@ -177,6 +274,64 @@ export default function TenantDashboard() {
         }
     };
 
+    const handleSubmitPayment = async () => {
+        if (!user) return;
+        setPaymentError('');
+
+        const selectedInvoice = pendingInvoices.find(inv => inv.id === selectedInvoiceId);
+        if (!selectedInvoice) {
+            setPaymentError('Select an invoice to pay.');
+            return;
+        }
+
+        if (!receiptFile) {
+            setPaymentError('Upload your GCash receipt.');
+            return;
+        }
+
+        setIsSubmittingPayment(true);
+        try {
+            const fileName = `${user.id}/${selectedInvoice.id}_${Date.now()}_${receiptFile.name}`;
+            const { error: uploadError } = await supabase
+                .storage
+                .from('payment-receipts')
+                .upload(fileName, receiptFile, { cacheControl: '3600' });
+
+            if (uploadError) throw uploadError;
+
+            const { data: { publicUrl } } = supabase
+                .storage
+                .from('payment-receipts')
+                .getPublicUrl(fileName);
+
+            const { error: insertError } = await supabase
+                .from('payment_submissions')
+                .insert({
+                    invoice_id: selectedInvoice.id,
+                    landlord_id: selectedInvoice.landlord_id,
+                    tenant_id: user.id,
+                    tenant_email: user.email,
+                    payment_method_id: selectedPaymentMethodId || null,
+                    amount: selectedInvoice.amount,
+                    reference_number: paymentReference || null,
+                    receipt_url: publicUrl,
+                    status: 'pending'
+                });
+
+            if (insertError) throw insertError;
+
+            setIsPaymentModalOpen(false);
+            setReceiptFile(null);
+            setPaymentReference('');
+            await fetchDashboardData();
+        } catch (error: any) {
+            console.error('Failed to submit payment:', error);
+            setPaymentError(error.message || 'Failed to submit payment.');
+        } finally {
+            setIsSubmittingPayment(false);
+        }
+    };
+
     function dataURLtoBlob(dataurl: string) {
         const arr = dataurl.split(',');
         const mime = arr[0].match(/:(.*?);/)![1];
@@ -197,9 +352,6 @@ export default function TenantDashboard() {
             </div>
         );
     }
-
-    const activeLease = leases.find(l => l.status === 'active');
-    const pendingLease = leases.find(l => l.status === 'pending');
 
     return (
         <div className={styles.container}>
@@ -332,18 +484,32 @@ export default function TenantDashboard() {
                                     </tr>
                                 </thead>
                                 <tbody>
-                                    <tr>
-                                        <td>Jan 15, 2026</td>
-                                        <td>Rent Payment - Jan</td>
-                                        <td>₱{activeLease?.rent_amount.toLocaleString() || "0"}</td>
-                                        <td><span className={`${styles.statusBadge} ${styles.paid}`}>Paid</span></td>
-                                    </tr>
-                                    <tr>
-                                        <td>Dec 15, 2025</td>
-                                        <td>Rent Payment - Dec</td>
-                                        <td>₱{activeLease?.rent_amount.toLocaleString() || "0"}</td>
-                                        <td><span className={`${styles.statusBadge} ${styles.paid}`}>Paid</span></td>
-                                    </tr>
+                                    {recentPayments.length > 0 ? (
+                                        recentPayments.map(payment => {
+                                            const invoiceDescription = Array.isArray(payment.invoice)
+                                                ? payment.invoice[0]?.description
+                                                : payment.invoice?.description;
+
+                                            return (
+                                                <tr key={payment.id}>
+                                                    <td>{new Date(payment.created_at).toLocaleDateString()}</td>
+                                                    <td>{invoiceDescription || 'Payment Submission'}</td>
+                                                    <td>₱{Number(payment.amount).toLocaleString()}</td>
+                                                    <td>
+                                                        <span
+                                                            className={`${styles.statusBadge} ${styles[payment.status === 'approved' ? 'paid' : payment.status]}`}
+                                                        >
+                                                            {payment.status}
+                                                        </span>
+                                                    </td>
+                                                </tr>
+                                            );
+                                        })
+                                    ) : (
+                                        <tr>
+                                            <td colSpan={4} className={styles.emptyRow}>No payments submitted yet.</td>
+                                        </tr>
+                                    )}
                                 </tbody>
                             </table>
                         </div>
@@ -359,7 +525,11 @@ export default function TenantDashboard() {
                             <h2 className={styles.cardTitle}>Quick Actions</h2>
                         </div>
                         <div className={styles.actionGrid}>
-                            <button className={styles.actionBtn} onClick={() => alert("Payments module coming soon!")}>
+                            <button
+                                className={styles.actionBtn}
+                                onClick={() => setIsPaymentModalOpen(true)}
+                                disabled={!activeLease}
+                            >
                                 <div className={`${styles.actionBtnIcon} ${styles.greenIcon}`}>
                                     <CreditCard size={20} />
                                 </div>
@@ -425,6 +595,117 @@ export default function TenantDashboard() {
                     unitName={`Unit ${selectedLease.unit?.unit_number}`}
                     tenantName={user?.user_metadata?.full_name || "Tenant"}
                 />
+            )}
+
+            {/* Payment Modal */}
+            {isPaymentModalOpen && (
+                <div className={styles.modalOverlay} onClick={() => setIsPaymentModalOpen(false)}>
+                    <div className={styles.modal} onClick={(e) => e.stopPropagation()}>
+                        <div className={styles.modalHeader}>
+                            <div>
+                                <h2>Submit Payment</h2>
+                                <p>Scan the QR code, pay, then upload your receipt.</p>
+                            </div>
+                            <button className={styles.modalClose} onClick={() => setIsPaymentModalOpen(false)}>
+                                <X size={18} />
+                            </button>
+                        </div>
+                        <div className={styles.modalBody}>
+                            <div className={styles.formGroup}>
+                                <label>Invoice</label>
+                                <select
+                                    value={selectedInvoiceId}
+                                    onChange={(e) => setSelectedInvoiceId(e.target.value)}
+                                    disabled={pendingInvoices.length === 0}
+                                >
+                                    {pendingInvoices.length === 0 && (
+                                        <option value="">No pending invoices</option>
+                                    )}
+                                    {pendingInvoices.map(invoice => (
+                                        <option key={invoice.id} value={invoice.id}>
+                                            {invoice.description || 'Rent Payment'} - ₱{Number(invoice.amount).toLocaleString()}
+                                        </option>
+                                    ))}
+                                </select>
+                            </div>
+
+                            <div className={styles.formGroup}>
+                                <label>Payment Method</label>
+                                <select
+                                    value={selectedPaymentMethodId}
+                                    onChange={(e) => setSelectedPaymentMethodId(e.target.value)}
+                                    disabled={paymentMethods.length === 0}
+                                >
+                                    {paymentMethods.length === 0 && (
+                                        <option value="">No payment method available</option>
+                                    )}
+                                    {paymentMethods.map(method => (
+                                        <option key={method.id} value={method.id}>
+                                            {method.label} {method.account_name ? `(${method.account_name})` : ''}
+                                        </option>
+                                    ))}
+                                </select>
+                            </div>
+
+                            {paymentMethods.length > 0 && selectedPaymentMethodId && (
+                                <div className={styles.qrCard}>
+                                    <div className={styles.qrPreview}>
+                                        <img
+                                            src={paymentMethods.find(m => m.id === selectedPaymentMethodId)?.qr_url}
+                                            alt="GCash QR"
+                                        />
+                                    </div>
+                                    <div className={styles.qrInfo}>
+                                        <div className={styles.qrTitle}>
+                                            <QrCode size={18} />
+                                            {paymentMethods.find(m => m.id === selectedPaymentMethodId)?.label || 'GCash'}
+                                        </div>
+                                        <p>{paymentMethods.find(m => m.id === selectedPaymentMethodId)?.instructions || 'Use your GCash app to scan and pay.'}</p>
+                                    </div>
+                                </div>
+                            )}
+
+                            <div className={styles.formGroup}>
+                                <label>Reference Number (Optional)</label>
+                                <input
+                                    type="text"
+                                    value={paymentReference}
+                                    onChange={(e) => setPaymentReference(e.target.value)}
+                                    placeholder="GCash reference number"
+                                />
+                            </div>
+
+                            <div className={styles.formGroup}>
+                                <label>Receipt Upload</label>
+                                <div className={styles.fileUpload}>
+                                    <input
+                                        type="file"
+                                        accept="image/*"
+                                        onChange={(e) => setReceiptFile(e.target.files?.[0] || null)}
+                                    />
+                                    <div className={styles.fileUploadInfo}>
+                                        <Upload size={18} />
+                                        <span>{receiptFile ? receiptFile.name : 'Upload GCash receipt image'}</span>
+                                    </div>
+                                </div>
+                            </div>
+
+                            {paymentError && <p className={styles.errorText}>{paymentError}</p>}
+                        </div>
+                        <div className={styles.modalFooter}>
+                            <button className={styles.secondaryBtn} onClick={() => setIsPaymentModalOpen(false)}>
+                                Cancel
+                            </button>
+                            <button
+                                className={styles.primaryBtn}
+                                onClick={handleSubmitPayment}
+                                disabled={isSubmittingPayment || pendingInvoices.length === 0}
+                            >
+                                {isSubmittingPayment ? 'Submitting...' : 'Submit Proof'}
+                            </button>
+                        </div>
+                    </div>
+                </div>
             )}
         </div>
     );

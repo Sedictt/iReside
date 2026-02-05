@@ -182,6 +182,33 @@
     overflow: hidden;
 }
 
+.paymentsCard {
+    background: white;
+    border: 1px solid #e2e8f0;
+    border-radius: 16px;
+    overflow: hidden;
+    margin-bottom: 1.5rem;
+}
+
+.paymentsHeader {
+    padding: 1.25rem 1.5rem;
+    border-bottom: 1px solid #e2e8f0;
+    background: #f8fafc;
+}
+
+.paymentsTitle {
+    margin: 0 0 0.25rem 0;
+    font-size: 1.1rem;
+    font-weight: 700;
+    color: #1e293b;
+}
+
+.paymentsSubtitle {
+    margin: 0;
+    font-size: 0.85rem;
+    color: #64748b;
+}
+
 .tableWrapper {
     overflow-x: auto;
 }
@@ -227,6 +254,12 @@
     color: #6366f1;
 }
 
+.submissionMeta {
+    font-size: 0.8rem;
+    color: #64748b;
+    margin-top: 0.25rem;
+}
+
 .tenantCell {
     display: flex;
     align-items: center;
@@ -259,6 +292,69 @@
 
 .amount {
     font-weight: 700;
+}
+
+.reviewBadge {
+    padding: 0.25rem 0.75rem;
+    border-radius: 999px;
+    font-size: 0.75rem;
+    font-weight: 700;
+    text-transform: uppercase;
+}
+
+.reviewBadgePending {
+    background: rgba(245, 158, 11, 0.1);
+    color: #f59e0b;
+}
+
+.reviewBadgeApproved {
+    background: rgba(16, 185, 129, 0.1);
+    color: #10b981;
+}
+
+.reviewBadgeRejected {
+    background: rgba(239, 68, 68, 0.1);
+    color: #ef4444;
+}
+
+.reviewActions {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    flex-wrap: wrap;
+}
+
+.receiptLink {
+    color: #6366f1;
+    font-weight: 600;
+    font-size: 0.8rem;
+    text-decoration: none;
+}
+
+.approveBtn,
+.rejectBtn {
+    border: none;
+    padding: 0.35rem 0.75rem;
+    border-radius: 999px;
+    font-size: 0.75rem;
+    font-weight: 700;
+    cursor: pointer;
+}
+
+.approveBtn {
+    background: rgba(16, 185, 129, 0.15);
+    color: #10b981;
+}
+
+.rejectBtn {
+    background: rgba(239, 68, 68, 0.12);
+    color: #ef4444;
+}
+
+.emptyRow {
+    text-align: center;
+    color: #94a3b8;
+    padding: 1.5rem;
 }
 
 .statusSelect {

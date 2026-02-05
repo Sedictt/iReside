@@ -1,0 +1,758 @@
+# Leasely (Tenant Platform) — Modules & Features
+
+This document lists system modules and their functions as implemented in the current workspace.
+
+## Public Site
+- **Landing page**: Presents tenant/landlord value proposition, entry points, and CTA routing to search or sign‑in.
+- **Authentication (Login/Signup)**: Email/password auth with tenant/landlord role selection on signup and error/status feedback.
+
+## Core Platform (Shared)
+- **User Profiles & Roles**: Stores user profile data and enforces role-based access.
+- **Security & RLS**: Supabase Row Level Security ensures users only access their own data.
+- **Storage**: Supabase Storage for listing media and lease signatures.
+- **Messaging Engine**: Conversation threads with real‑time updates for landlord↔tenant messaging.
+- **Listing → Inquiry → Lease Pipeline**: Listing discovery, inquiry submission, landlord decision, lease creation.
+
+## Landlord Portal (Operations)
+### Dashboard
+- **KPI Cards (4 core metrics)**:
+  - **Monthly Revenue**: Summed rent from all occupied units (status='occupied' or 'neardue'), formatted in Philippine Peso (₱).
+  - **Occupancy Rate**: Percentage of occupied units divided by total units. Example: 6 occupied / 10 total = 60%.
+  - **Active Tenants**: Count of occupied units with active leases.
+  - **Pending Issues**: Count of units in maintenance mode or near-due status.
+- **Real-time calculation**: Queries properties and units with joins to compute metrics on page load.
+- **Recent Inquiries Widget**: Last 3 inquiries displayed with tenant name, property, inquiry message, and time ago. "View all" link routes to full inbox.
+- **Alerts & Maintenance Widget**: Shows critical, warning, and info-level alerts. Examples: broken appliances (critical), pest inspection due (warning), routine check (info).
+- **Time context**: Displays current date/time in "Month Day, Year" format.
+- **Quick actions**: Buttons to navigate to properties, invoices, and maintenance center.
+- **At-a-glance health check**: Landlords can assess overall portfolio performance in seconds without drilling into details.
+
+### Properties & Units
+- **Portfolio listing**: Hierarchical view—each property as a section, all units under it, naturally sorted by unit_number.
+- **Unit-level data displayed**:
+  - Unit number and type (studio, 1BR, 2BR, etc.)
+  - Rent amount
+  - Current status (Available/Vacant, Occupied, Maintenance, Payment Due)
+  - Active tenant name (pulled from active lease)
+- **Inline editing**:
+  - Click unit row to edit rent amount and status simultaneously.
+  - Save changes instantly to database; page updates without reload.
+- **Filter dropdown**: "All Statuses" | "Vacant" | "Occupied" | "Maintenance" | "Payment Due". Filters visible units in real-time.
+- **Sort dropdown**: "Sort by Unit #" (default, natural ordering) | "Rent (Low to High)" | "Rent (High to Low)".
+- **Visual indicators**: Status badge colors (green=vacant, blue=occupied, orange=payment due, red=maintenance).
+- **Unit capacity at a glance**: Property-level summary showing total vs. occupied units.
+- **Problem identification**: Landlords can instantly spot:
+  - Vacant units losing revenue (green units requiring marketing push)
+  - Over-occupied properties (blue dominance may indicate shared units or need for expansion)
+  - Maintenance blockers (red units preventing income)
+  - Delinquent tenants (orange units needing collection follow-up)
+
+### Listings Management
+- **Listing overview table**:
+  - Listing title and headline (property name and short description).
+  - Status badge: Draft (gray), Published (green), Paused (yellow), Archived (gray).
+  - Cover photo thumbnail (primary image from gallery).
+  - Property type (apartment, condo, dorm, etc.).
+  - Location: City, barangay, landmark.
+  - Price range: Min–Max display (e.g., ₱15k–₱25k).
+  - Metrics: View count, inquiry count, number of photos.
+  - Published date (if published).
+  - Last updated date.
+- **Actions menu (3-dot dropdown per listing)**:
+  - Edit (route to listing editor).
+  - Manage photos (route to photo gallery).
+  - Publish/Pause toggle (switches status instantly).
+  - Delete (soft-delete to archive).
+- **Search bar**: Search listings by title or city name.
+- **Status filter dropdown**: All | Draft | Published | Paused | Archived. Filters table view.
+- **Aggregate statistics**:
+  - Total listings count.
+  - Published count (live on market).
+  - Draft count (works in progress).
+  - Total views (sum of all listing views).
+  - Total inquiries (sum of all listing inquiries).
+- **Performance at a glance**:
+  - Listings with high views but low inquiries → content/pricing issue.
+  - High inquiries → strong market interest.
+  - No views → visibility/SEO issue.
+- **Problem identification**: Landlords can spot:
+  - Underperforming listings (low views/inquiries → needs better photos or description).
+  - Overactive inquiries without leases created → follow-up needed.
+  - Stale listings (old updated date → may need refresh).
+  - Drafts never published → incomplete property setup.
+
+### Listing Editor
+- **Basic listing details**:
+  - Title, headline (sub-title), full description (markdown supported).
+  - Property type dropdown: apartment, dormitory, boarding house, condo, townhouse, house.
+  - Total units and available units (auto-sync with inventory).
+- **Pricing & lease terms**:
+  - Price range min/max (e.g., ₱15,000–₱25,000).
+  - Custom price display format (e.g., "₱15k–₱25k/mo").
+  - Deposit months, advance months, minimum/maximum lease duration.
+- **Location & map**:
+  - Display address, barangay, landmark, city fields.
+  - Interactive map pin: Click map to set exact coordinates (lat/lng). Draggable marker for precision. Helps tenants locate property and enables map-based search.
+- **Contact preferences**:
+  - Show/hide phone toggle + phone number field.
+  - Show/hide email toggle + email field.
+  - WhatsApp number and Facebook page fields.
+- **Amenities selection**: Multi-select from amenities catalog (WiFi, Parking, Gym, AC, etc.) with visual checkboxes. Amenity filters on tenant search are powered by these selections.
+- **House rules & policies**:
+  - Pets allowed (boolean).
+  - Smoking allowed (boolean).
+  - Visitors allowed (boolean).
+  - Curfew time (optional, e.g., 10:00 PM).
+  - Gender restriction (none, male only, female only, families only).
+- **SEO metadata**:
+  - Meta description (for search engines).
+  - Keywords (comma-separated).
+  - Auto-generated slug (e.g., "sunset-heights-unit-302").
+- **Publishing workflow**:
+  - Status dropdown: Draft, Published, Paused, Archived.
+  - Publish date tracking.
+  - Featured flag (promotes listing on homepage).
+- **Tab-based UI**: "Basic Info" → "Pricing" → "Location" → "Contact" → "Rules" → "SEO" for organized editing flow.
+- **Real-time validation**: Fields validate on change; UI shows required field indicators.
+- **Analytics integration**: Tracks view_count and inquiry_count to show performance metrics.
+
+### Listing Photos
+- **Multi-file upload**: Drag-and-drop or click-to-browse file input. Uploads multiple files in sequence to Supabase Storage.
+- **Storage & URLs**: Files stored in `/listings/{landlordId}/{listingId}/{timestamp}-{index}.ext` path. Public URLs generated automatically.
+- **Primary photo designation**: Single photo marked as cover/primary image. Used as thumbnail in search results and listing card.
+- **Photo metadata**:
+  - Photo type tags: Cover, Exterior, Interior, Amenity, Unit, Floor Plan, Document.
+  - Caption field per photo (optional description).
+  - Alt text (for accessibility and SEO).
+- **Display ordering**: Drag to reorder photo sequence. Order persists in `display_order` column, controls gallery sequence.
+- **Progress tracking**: Upload progress bar shows percentage as files transfer.
+- **Photo management**:
+  - Delete individual photos (removes from storage and database).
+  - Update type and caption without re-uploading.
+  - Mark photos as primary without re-uploading.
+- **Gallery performance**: Photos organized by type help tenants navigate (exterior first, then interior, amenities, etc.).
+- **Mobile optimization**: Responsive image gallery works on all screen sizes.
+
+### Inquiries
+- **Inquiry inbox with status filtering**:
+  - All | New | Read | Replied | Archived tabs with count badges.
+  - Sidebar list shows all inquiries, sorted by newest first.
+  - Click inquiry to view full details in main panel.
+- **Inquiry details panel**:
+  - Tenant name, email, phone number.
+  - Inquiry message (free-form tenant interest statement).
+  - Property title and address being inquired about.
+  - Preferred move-in date (if provided by tenant).
+  - Created date and time ago (e.g., "3 hours ago").
+  - Status badge (New/Read/Replied).
+- **Decision workflow modal**:
+  - "Request Decision Modal" pops up with inquiry summary.
+  - Tenant avatar/initial, name, verified badge.
+  - Move-in date calendar widget (shows month/day).
+  - Contact details: email, phone, unit requested, rent offer.
+  - Two action buttons: Approve | Reject.
+  - **Approve**: Creates a lease agreement and routes to lease editor.
+  - **Reject**: (Optional) Record rejection reason, mark status as rejected.
+- **Lease creation flow**:
+  - After approval, "Create Lease Modal" opens.
+  - Pre-fills: Tenant name, email, inquiry property.
+  - Select available unit from dropdown (filters to vacant units in property).
+  - Auto-fill rent amount from selected unit.
+  - Enter lease start date, end date.
+  - Submit creates lease record with status='pending' and updates unit status to 'occupied'.
+- **Chat handoff**:
+  - "Start Chat" button initiates conversation with tenant.
+  - Creates conversation record in messaging system.
+  - Routes to `/landlord/messages?id={conversationId}`.
+  - Auto-updates inquiry status to 'replied' when chat started.
+- **Inquiry lifecycle**:
+  - New → Landlord views = Read → Responds/creates lease = Replied.
+  - Can be archived when processed (hidden from default view).
+- **Problem identification**: Landlords can spot:
+  - High "new" count → backlog of unreviewed inquiries.
+  - Inquiries stuck in "read" → follow-up reminder needed.
+  - Low approval rate → properties uncompetitive (pricing/listing issue).
+  - High inquiry volume with no leases → conversion problem (sales funnel leak).
+
+### Tenants Directory
+- **Active leases table**:
+  - Tenant name (from profile).
+  - Contact email and phone.
+  - Property name and unit number (from unit join).
+  - Lease period: Start date – End date.
+  - Monthly rent amount (₱ formatted).
+  - Lease status badge: Active (green) | Pending Landlord (yellow) | Pending Tenant (blue).
+- **Lease filtering**:
+  - Query filters to active leases and pending_landlord leases.
+  - Only shows leases relevant to current landlord's properties.
+- **Inline actions per row**:
+  - **Message**: Opens messaging modal or routes to existing conversation.
+    - Checks if conversation exists between landlord and tenant.
+    - If not, creates new conversation record.
+    - Routes to `/landlord/messages?id={conversationId}`.
+  - **Countersign** (if status='pending_landlord'): Opens landlord signature modal.
+    - "LandlordSigningModal" component.
+    - Landlord draws signature on canvas.
+    - Signature uploaded to Supabase Storage as PNG.
+    - Lease record updated with landlord signature URL and status changed to 'active'.
+- **Sorting**: By creation date (newest first), can be extended to sort by rent or name.
+- **Lease detail view**: Click row to see full lease summary and action options.
+- **Problem identification**: Landlords can spot:
+  - Pending leases not countersigned → follow-up reminder.
+  - Large rent amounts per tenant → high-value tenants needing attention.
+  - Lease expiry approaching (if end date tracked) → renewal planning needed.
+  - Silent tenants (no messages) → engagement opportunity.
+
+### Maintenance Center
+- **Request list with status filtering**:
+  - All Requests | Open | In Progress | Resolved tabs.
+  - Each tab shows count badge of requests in that status.
+  - Sidebar list displays all requests; click to view full details.
+- **Request details**:
+  - Title and description (free-form tenant complaint).
+  - Property name and address.
+  - Unit number (if specific unit or general building issue).
+  - Tenant name and contact info.
+  - Priority badge (open/alert/warning colors).
+  - Created date and time ago format (e.g., "2 hours ago").
+- **AI-powered analysis**:
+  - "Analyze" button triggers `/api/ai/analyze-maintenance` endpoint.
+  - AI examines request keywords (leak, smoke, lock, AC, etc.) to auto-categorize:
+    - **Plumbing**: Leak, water, drip → High severity, estimated cost ₱150–₱400, action "Dispatch licensed plumber immediately".
+    - **Electrical**: Smoke, fire, spark → Critical severity, estimated cost ₱200–₱600, action "Shut off breaker, dispatch emergency electrician".
+    - **Security**: Lock, door, key → High severity, estimated cost ₱100–₱250, action "Dispatch locksmith".
+    - **HVAC**: AC, heat, cool → Medium severity, estimated cost ₱150–₱500, action "Check thermostat, schedule technician".
+  - AI returns: category, severity, summary, suggested action, estimated cost, confidence (0.95).
+- **AI results display**:
+  - Summary of issue in natural language.
+  - Categorized action steps.
+  - Estimated cost range for budgeting.
+  - Confidence percentage.
+- **Status management**: Change request status inline (open → in_progress → resolved). Timestamps tracked for closed requests.
+- **Priority sorting**: High-priority requests bubble to top; landlord can quickly address critical issues.
+- **Problem identification**: AI categories help landlords:
+  - Route issues to correct contractors (plumber vs. electrician).
+  - Budget maintenance spend by frequency and cost.
+  - Track recurring issues (multiple plumbing problems → recommend preventive inspection).
+  - Prioritize urgent safety issues (electrical, security) over comfort issues (HVAC).
+
+### Finances
+- **Transaction ledger**: Complete record of all income and expense entries, searchable and filterable.
+- **Transaction types**:
+  - **Income**: Rent, Deposit, Late Fee, Other Income.
+  - **Expense**: Maintenance, Utilities, Insurance, Taxes, Management Fee, Other Expense.
+- **Transaction fields**:
+  - Type (income/expense).
+  - Category (from predefined list above).
+  - Description (free-form note).
+  - Amount (numeric in Philippine Peso).
+  - Date (transaction date, not created date).
+  - Property association (optional—can be unlinked or linked to specific property).
+- **Filter by type**: All | Income | Expense—quickly isolates revenue vs. costs.
+- **Summary cards**:
+  - **Total Income**: Sum of all income transactions lifetime.
+  - **Total Expense**: Sum of all expense transactions lifetime.
+  - **Net Income**: Total income minus total expense.
+  - **This Month Income**: Filtered to current month.
+  - **This Month Expense**: Filtered to current month.
+  - **Monthly Net**: Monthly income minus monthly expense.
+- **Visual indicators**:
+  - Income cards in green with upward trending arrow.
+  - Expense cards in red with downward trending arrow.
+- **Monthly breakdown chart**: Bar chart showing income vs. expense by month (last 12 months), helps visualize seasonal trends.
+- **Property-scoped reporting**: Assign transactions to property to see per-property profitability.
+- **Problem identification**: Landlords can spot:
+  - Expense creep (utilities spiking → potential unit damage).
+  - Seasonal income fluctuation (vacancy season → marketing needed).
+  - Category imbalances (maintenance costs exceeding budget → unit quality issues).
+  - Profitability per property (some properties operating at loss).
+
+### Invoices
+- **Invoice creation form**:
+  - Tenant name (free-form or auto-fill from tenant directory).
+  - Tenant email (optional for sending).
+  - Description (e.g., "January 2026 Rent", "Utility Surcharge").
+  - Amount (numeric in Philippine Peso).
+  - Due date (calendar picker).
+  - Unit association (optional—helps track which unit/property the invoice relates to).
+- **Status tracking**:
+  - Paid: Invoice settled, marked with date paid.
+  - Pending: Awaiting payment, active reminder status.
+  - Overdue: Auto-calculated—if due date is in past and not paid, flagged as overdue (red highlight).
+- **Invoice management**:
+  - Mark invoice as paid manually (sets `paid_at` timestamp).
+  - Revert from paid to pending if payment reversed.
+  - Delete draft invoices.
+  - Edit amount/due date before finalizing.
+- **Aggregate metrics**:
+  - Total invoices count.
+  - Total invoice amount (all invoices).
+  - Collected amount (paid invoices only).
+  - Outstanding amount (pending + overdue).
+  - Per-status breakdown (X paid, Y pending, Z overdue).
+- **Search & filter**:
+  - Filter by status (All | Paid | Pending | Overdue).
+  - Search by tenant name or description.
+- **Status cards at top**: Quick visual of invoice health.
+- **Problem identification**: Landlords can easily spot:
+  - Delinquent tenants (overdue status, high outstanding amounts).
+  - Collection priority (sort overdue first).
+  - Cash flow gaps (pending invoices vs. collected).
+  - Unit-level rental performance (which units generate most invoices).
+
+### Manual Payments (GCash QR + Receipt)
+- **Landlord payment setup**:
+  - Upload GCash QR code with label, account name, account number, and optional instructions.
+  - Multiple methods supported; one can be marked Active for tenants.
+- **Tenant payment flow**:
+  - “Pay Rent” opens a modal with the active GCash QR and pending invoice selection.
+  - Tenant scans QR, pays, enters reference number (optional), and uploads receipt image.
+  - Submission recorded as `payment_submissions` with status='pending'.
+- **Landlord review workflow**:
+  - Payments inbox shows pending submissions with receipt link and reference number.
+  - Approve → marks invoice as paid and stores review timestamp.
+  - Reject → marks submission as rejected (tenant can re‑submit).
+- **Audit trail**:
+  - Payment submissions keep receipt URL, timestamps, and reviewer ID.
+
+### Tasks
+- **Task list management**:
+  - Create task with title (required), description (optional), priority, due date, property assignment.
+  - Status options: Pending | In Progress | Completed.
+  - Delete tasks individually.
+- **Task fields**:
+  - Title (main action, e.g., "Fix broken window in Unit 304").
+  - Description (context or subtasks).
+  - Priority: High (red), Medium (yellow/orange), Low (green).
+  - Due date (optional calendar date).
+  - Property assignment (scope task to specific property).
+  - Created date (auto-timestamp).
+- **Filtering by status**: All | Pending | In Progress | Completed. Quick view of workload at each stage.
+- **Progress tracking**:
+  - Completion bar at top shows X of Y tasks completed.
+  - Visual percentage (e.g., "3 of 10 tasks completed = 30%").
+- **Overdue detection**: Tasks past due date show red "Overdue" badge. Helps landlord prioritize.
+- **Quick toggle**: Click task to mark complete/incomplete without opening detail view.
+- **Priority sorting**: High-priority tasks appear first by default.
+- **Problem identification**: Landlords can spot:
+  - Task backlog (high pending count → resource constraint).
+  - Overdue critical tasks (safety/compliance issues).
+  - In-progress bottleneck (many tasks stalled → need delegation).
+  - Property-specific workload (which property has most tasks → potential problem area).
+
+### Statistics
+- **KPI summary cards**:
+  - **Total Revenue**: Lifetime sum of rent from all occupied units.
+  - **Properties**: Count of landlord's property portfolios.
+  - **Occupancy Rate**: (Occupied units / Total units) × 100, percentage display.
+  - **Trend indicators**: Arrows showing month-over-month change (up/down).
+- **Property-level breakdown table**:
+  - Property name.
+  - Total units in property.
+  - Occupied units count.
+  - Revenue per property (sum of occupied unit rent).
+  - Allows comparison of property performance.
+- **Monthly trend chart**:
+  - X-axis: Month labels (Jan, Feb, etc.) over last 12 months.
+  - Y-axis: Amount in Philippine Peso.
+  - Two series: Income (green bars) and Expenses (red bars).
+  - Visualization shows seasonal patterns, profitability by month.
+- **Date range selector**: "Last 12 months" (default, can be extended or custom range in future).
+- **Problem identification**: Landlords can spot:
+  - Seasonal revenue dips (summer vacancy → marketing campaign needed).
+  - Expense spikes (maintenance surge → potential quality issues).
+  - Property underperformance (low revenue relative to units → pricing or occupancy issue).
+  - Profitability trends (improving or declining business health).
+
+### Unit Map / Visual Builder
+- **Drag‑and‑drop grid system**: Interactive canvas-based floor planning with a fixed 40px grid cell size. Users drag unit types from a sidebar onto a 10-row grid to arrange physical layouts. Grid coordinates (gridX, gridY) are calculated based on cell positions.
+- **Unit type catalog**: Studio (4 cells), 1-Bedroom (5 cells), 2-Bedroom (7 cells), and Stairs (2 cells) with configurable widths for realistic proportions.
+- **Collision prevention**: Real-time validation prevents unit overlaps—when dragging, a "ghost" preview shows the target location and turns red if collision detected, blocking placement.
+- **Color-coded status indicators**: 
+  - **Green**: Vacant/Available units ready for tenants
+  - **Blue**: Occupied units with active tenants
+  - **Orange/Yellow**: Near-due units (rent payment approaching deadline)
+  - **Red**: Maintenance mode (unit unavailable)
+- **Unit labels & metadata**: Each unit displays unit number, rent amount, and tenant name (if occupied). Hovering reveals full details.
+- **Zoom & pan**: Users can zoom (Ctrl+Scroll) to 0.4x–3x scale and pan around large properties. Viewport tracks mouse position for precise cursor-to-grid projection.
+- **Trash zone**: Drag units to a trash icon to delete them from the property.
+- **Property scope**: One blueprint per property—landlords manage separate floor plans for each building.
+- **Problem identification**: The visual layout + color coding allows landlords to instantly spot:
+  - Maintenance clusters (red zones needing attention)
+  - Occupancy gaps (green units losing rental income)
+  - Payment-at-risk tenants (orange units needing follow-up)
+  - Load distribution (balanced tenant placement)
+
+### AI Concierge Admin
+- **Knowledge base editor**: Add Q&A for each property.
+- **Tenant assistant data**: Feeds tenant concierge responses.
+
+### Settings
+- **Profile tab**:
+  - Full name, email, phone, company name, address fields.
+  - Upload profile photo (optional).
+  - Save button triggers `supabase.auth.updateUser()` with metadata.
+  - Toast notification confirms save or error.
+- **Notifications tab**:
+  - Email notifications toggle (on/off).
+  - Push notifications toggle.
+  - SMS notifications toggle.
+  - New tenant alerts toggle (instant notification for new inquiries).
+  - Payment reminders toggle (daily/weekly digest of pending invoices).
+  - Maintenance alerts toggle (critical/urgent maintenance notifications).
+  - Weekly reports toggle (digest of weekly activity).
+  - Preferences stored in localStorage.
+- **Security tab**:
+  - Current password field (for verification).
+  - New password field.
+  - Confirm password field.
+  - "Change Password" button triggers password update via Supabase Auth.
+  - Validation: Minimum 8 characters, passwords must match.
+  - Toast confirms success or shows error.
+- **Preferences tab**:
+  - Theme: Light | Dark | System (system follows OS preference).
+  - Language: English (extensible for i18n).
+  - Timezone: Asia/Manila (default, user-selectable).
+  - Currency: PHP (Philippine Peso, extensible).
+  - Date format: DD/MM/YYYY (extensible to MM/DD/YYYY or YYYY-MM-DD).
+  - Preferences persist in localStorage.
+- **Tab-based navigation**: Clean UI with icon + label for each settings section.
+- **Problem identification**: Settings reveal:
+  - Notification overload → tenant has disabled alerts (may miss critical issues).
+  - Timezone misalignment → daylight savings or international expansion planning.
+
+### Help & Support
+- **FAQ & resources**: Help center with quick links.
+
+### Documents
+- **Document hub (placeholder)**: Future document management area.
+
+## Tenant Portal (Experience)
+### Search & Discovery
+- **Map-based search interface**:
+  - Full-screen Leaflet map with light tile layer (CartoDB).
+  - Zoom/pan controls (zoom buttons + mouse scroll).
+  - Default center: Valenzuela City (14.6819°N, 120.9772°E), zoom level 14.
+- **Search bar**:
+  - Autocomplete powered by OpenStreetMap Nominatim API.
+  - Debounced input (300ms delay to reduce API calls).
+  - Dropdown shows matching locations (cities, barangays, landmarks).
+  - Click location to pan map and set search origin point.
+  - Displays friendly name in search box (e.g., "Makati City").
+- **Search radius/proximity filter**:
+  - Adjustable radius slider: 1km–10km range (default 3km).
+  - Visual circle overlay on map shows search area with dashed boundary.
+  - Center point marker indicates search origin.
+  - Tooltip shows "Search Area (3.0km)".
+  - Toggle to show/hide radius circle.
+  - Dynamically filters properties within radius.
+- **Property markers**:
+  - Custom price badges (₱15k, ₱20k, etc.) pinned at property location.
+  - Click marker to view listing detail modal.
+  - Hover tooltip shows property name, type, price, cover image.
+  - Focused marker enlarges/highlights for visual feedback.
+- **Price filter slider**: 0–₱100k+ range. Filters results by rent budget in real-time.
+- **Amenities multi-select**: Checkboxes for WiFi, Parking, Gym, AC, etc. Shows only properties with selected amenities.
+- **Property type filters**: Apartments | Dormitories | All. Toggles property type visibility.
+- **View mode toggle**: Map view (default) | List view (card-based results).
+- **Results counter**: "Showing X properties" updates as filters change.
+- **Problem identification**: Tenants can spot:
+  - High-density rental clusters → popular areas, competitive pricing.
+  - Amenity availability → which areas have desired features.
+  - Price clustering → rental rate variations by location.
+  - Coverage gaps → underserved neighborhoods (opportunity for landlords).
+
+### Listing Detail Modal
+- **Full-screen modal overlay**: Darkened background, centered card with close button (X icon).
+- **Tab-based content area**: "Photos" and "Blueprint" tabs to switch between gallery and unit map.
+- **Photos tab**:
+  - Large hero image display (primary photo by default).
+  - Navigation arrows (previous/next) to browse gallery.
+  - Thumbnail strip below for quick jump to photo.
+  - Photo counter (e.g., "1 of 15").
+  - Fullscreen expand button (maximize image view).
+- **Blueprint tab**:
+  - Visual builder grid showing all units in property.
+  - Click unit to select and populate inquiry form with pre-filled unit number.
+  - Shows occupancy status (color-coded) on blueprint.
+- **Listing header**:
+  - Property title and headline.
+  - Property type, city, and address.
+  - Price range display (e.g., "₱15,000–₱25,000/mo").
+- **Details section**:
+  - Full description (markdown-rendered).
+  - Key info cards: Deposit, Advance, Lease duration, Available units count.
+- **Amenities showcase**: Icons and names of included amenities (WiFi, Parking, AC, Gym, etc.).
+- **House rules & policies**:
+  - Pets allowed (yes/no badge).
+  - Smoking allowed (yes/no badge).
+  - Visitors allowed (yes/no badge).
+  - Curfew time (if set, e.g., "10:00 PM").
+  - Gender restrictions (if any, e.g., "Female only").
+- **Contact info**:
+  - Phone (if show_phone=true), clickable tel: link.
+  - Email (if show_email=true), clickable mailto: link.
+  - WhatsApp (if available), direct message link.
+  - Facebook page link.
+- **Inquiry form**:
+  - Tenant name, email, phone fields (pre-fill if logged in).
+  - Unit selection dropdown (optional, or pre-fill if clicked unit on blueprint).
+  - Preferred move-in date (calendar picker).
+  - Message textarea ("I'm interested because...").
+  - Submit button sends inquiry to landlord.
+  - Success message: "Inquiry sent! Landlord will respond soon."
+- **Responsive design**: Adapts to mobile (vertical stack, smaller images, touch-friendly).
+
+### Tenant Dashboard
+- **Lease status summary**:
+  - Active lease card: Property name, unit number, monthly rent, lease end date.
+  - Pending signature banner: "Sign your lease agreement" with link to signing modal.
+  - No lease state: "Start searching for your next home" with CTA button.
+- **Quick action buttons**:
+  - Message landlord (routes to `/tenant/messages`).
+  - File maintenance request (routes to maintenance intake form).
+  - Chat with concierge (routes to `/tenant/concierge`).
+- **Upcoming payments card** (if active lease):
+  - Next rent due date.
+  - Amount due (₱ formatted).
+  - Auto-pay status (enabled/disabled).
+  - Pay now button (placeholder for payment integration).
+- **Lease document access**:
+  - View signed lease PDF (if signature_url exists).
+  - Download lease for offline access.
+- **Tenant info section**:
+  - Name, email, phone (editable links to account settings).
+  - Emergency contact (optional).
+- **Recent activity feed** (placeholder):
+  - Latest messages from landlord.
+  - Recent maintenance updates.
+  - Payment confirmations.
+- **Problem identification**: Tenants can spot:
+  - Lease expiration approaching → renewal negotiation time.
+  - Overdue rent → payment urgency.
+  - Unread landlord messages → communication lag.
+
+### Tenant Messages
+- **Conversation list sidebar**:
+  - All conversations with landlord(s) and property managers.
+  - Sorted by most recent message date.
+  - Avatar + name of other participant.
+  - Last message preview (truncated).
+  - Unread badge (if new messages).
+  - Click to load conversation thread.
+- **Search/filter**: Search by participant name or property.
+- **Message thread area**:
+  - Messages displayed in chronological order (oldest at top).
+  - Sender name and timestamp (e.g., "2 hours ago").
+  - User messages (right-aligned, blue background).
+  - Landlord messages (left-aligned, gray background).
+  - Distinct colors for clear read direction.
+- **Real-time updates**: New messages appear instantly (subscribed to Supabase realtime INSERT events on messages table).
+- **Message input form**:
+  - Text field with placeholder "Type a message...".
+  - Send button (arrow icon).
+  - Emoji picker (optional, expandable).
+  - File attachment button (optional, for lease documents).
+- **Auto-scroll**: Page scrolls to latest message on load and new message arrival.
+- **Conversation metadata**:
+  - Property/listing context (if conversation linked to listing).
+  - Participant profile info (landlord name, avatar).
+- **Problem identification**: Tenants can spot:
+  - Delayed landlord response (timestamp gaps → follow-up reminder needed).
+  - Unresolved issues (long message threads → escalation to admin).
+
+### AI Concierge
+- **Conversational interface**:
+  - Chat window with message history.
+  - Welcome message: "Hello! I'm your AI Property Concierge. Ask me anything about your home, rules, or amenities!"
+- **Tenant input**:
+  - Message input field at bottom.
+  - Send button (arrow icon) and keyboard submit (Enter key).
+- **AI response engine**:
+  - Queries landlord-provided knowledge base for the tenant's property.
+  - Knowledge base structure: Category, Topic, Content (Q&A pairs).
+  - Matching algorithm:
+    - Scores each knowledge item based on topic/category match and keyword overlap.
+    - Returns best match if confidence score > 10.
+    - Returns fallback message if no match: "I'm sorry, I don't have information about that yet. You might want to contact your landlord directly or check the community forum."
+- **Knowledge categories**: General, WiFi & Internet, Trash & Recycling, Emergency, Amenities, Policies.
+- **Example Q&A**:
+  - Q: "What's the WiFi password?"
+  - A: "[Landlord response]"
+  - Q: "When is trash pickup?"
+  - A: "[Landlord response]"
+- **Typing indicator**: Shows "Bot is typing..." while processing response.
+- **Message history**: All messages persist in current session; users can scroll up to review conversation.
+- **Accessibility**: Responsive design works on mobile; chat window scrolls to latest message.
+- **Problem identification**: Tenants can spot:
+  - Missing knowledge → landlord hasn't configured concierge → escalate to direct message.
+  - Repeated questions → landlord FAQ incomplete → suggest topic additions.
+
+### Community
+- **Complaints system**:
+  - File complaint form: Select recipient unit (dropdown of other units in property), category (Noise, Harassment, Cleanliness, Safety, Other), description, priority.
+  - Submit complaint → Records in tenant_complaints table with status='open'.
+  - Complaint list sidebar: All complaints filed by tenant, sorted by newest.
+  - Click complaint to view details and chat thread.
+- **Complaint chat**:
+  - Threaded messages under each complaint.
+  - Complaints can be responded to by other tenants or property manager.
+  - Status lifecycle: Open → Resolved.
+  - Timestamp tracking for response time SLA.
+- **Neighbors list**:
+  - Displays all active tenants in same property (excluding self).
+  - Shows: Unit number, tenant name, avatar.
+  - "Message" button per neighbor → Creates 1:1 conversation in tenant messages.
+  - Hover profile card shows tenant contact (if shared voluntarily by neighbor).
+- **Community moderation**:
+  - Complaints flagged for profanity/abuse (optional AI moderation in future).
+  - Block neighbor (optional, prevents direct messaging).
+- **Problem identification**: Tenants can spot:
+  - Chronic complaints → property management quality issue.
+  - Unresponsive neighbors → mediation needed.
+  - High complaint volume → toxic community → may consider moving.
+
+### Lease Demo
+- **Standalone demo page**: `/tenant/lease-demo` routes here.
+- **Lease signing modal trigger**: "Open Signature Pad" button launches the signing workflow.
+- **Modal content**:
+  - Property name: "Evergreen Lake".
+  - Unit name: "Unit 304".
+  - Tenant name: "John Doe".
+  - Instructions: "Please sign below to accept the lease terms and conditions."
+  - Canvas for signature capture (2000px × 500px interactive drawing area).
+  - Placeholder text: "Sign Here" (disappears when signing starts).
+- **Controls**:
+  - Clear button: Erases signature and resets canvas.
+  - Sign button: Converts canvas to PNG data URL and submits.
+- **Signature capture**:
+  - Uses HTML5 canvas API for drawing.
+  - Line width: 2px, rounded caps, slate-800 color.
+  - Supports mouse and touch input (for mobile/tablet).
+  - Stores as PNG image data URL.
+- **Post-signature**:
+  - Displayed signature image below canvas in demo page.
+  - In real app, would upload to storage and update lease record.
+- **Use case**: Landlords can demo signing flow to tenants before live implementation. Marketing/onboarding tool.
+
+## Lease Signing (End-to-End)
+- **Tenant signing flow**:
+  - Accessed from: `/tenant/dashboard` (for pending leases) or `/tenant/lease-demo` (demo).
+  - Modal: "LeaseSigningModal" component.
+  - Displays: Property name, unit name, tenant name.
+  - Instructions: "Please sign below to accept the lease terms and conditions for [Unit]. By signing, [Tenant] agrees to all provisions."
+  - Canvas for signature drawing (touch + mouse supported).
+  - Clear button to erase and restart.
+  - Sign button to finalize.
+  - Signature converted to PNG data URL upon submission.
+- **Signature upload to storage**:
+  - Signed PNG uploaded to Supabase Storage: `/signatures/{userId}/{leaseId}_signature_{timestamp}.png`.
+  - Public URL generated automatically.
+- **Database update post-tenant-sign**:
+  - Lease record updated:
+    - `status`: 'pending' → 'pending_landlord'.
+    - `signature_url`: Set to public URL.
+    - `signed_at`: Timestamp of signature.
+  - Tenant receives confirmation: "Signed successfully! Waiting for landlord to countersign."
+- **Landlord countersign flow**:
+  - Accessed from: `/landlord/tenants` (tenants directory, "Countersign" button).
+  - Modal: "LandlordSigningModal" component.
+  - Displays: Tenant name, property name.
+  - Instructions: "You are countersigning the lease for [Tenant] at [Property]."
+  - Canvas for signature drawing (identical to tenant flow).
+  - Clear and Sign buttons.
+- **Signature upload & finalization**:
+  - Landlord signature uploaded to Storage: `/signatures/{landlordId}/{leaseId}_landlord_{timestamp}.png`.
+  - Lease record updated:
+    - `status`: 'pending_landlord' → 'active'.
+    - `landlord_signature_url`: Set to public URL.
+    - `countersigned_at`: Timestamp of landlord signature.
+- **Audit trail**:
+  - Both signatures stored separately; timestamps tracked for each party.
+  - Lease record contains both signature URLs.
+  - Tenant and landlord each receive confirmation email (optional, future).
+- **Legal validity**:
+  - Signatures serve as binding agreement acceptance.
+  - Stored on immutable cloud storage for legal compliance.
+  - Can be retrieved for dispute resolution or contract review.
+
+## Admin Portal
+### Landlord Applications
+- **Review queue**:
+  - Displays all landlord applications sorted by submission date (newest first).
+  - Status filters: Pending | Under Review | Approved | Rejected.
+  - Each application shows: Applicant name, business name, submission date, status badge.
+- **Application details modal**:
+  - Applicant name, email, phone.
+  - Business name and address.
+  - Government ID document (link to uploaded file).
+  - Property ownership document (link to uploaded file).
+  - Submission date and review date (if reviewed).
+  - Rejection reason (if rejected).
+- **Approval workflow**:
+  - Click "Approve" button.
+  - Backend:
+    - Updates `landlord_applications` table: status = 'approved', reviewed_at = NOW().
+    - Updates `profiles` table: role = 'landlord' (for approved user).
+  - User gains access to `/landlord/*` routes immediately.
+  - Success message: "Application approved! User is now a landlord."
+- **Rejection workflow**:
+  - Click "Reject" button.
+  - Modal prompts for rejection reason (required).
+  - Backend:
+    - Updates `landlord_applications` table: status = 'rejected', rejection_reason = '[reason]', reviewed_at = NOW().
+    - User remains as tenant; cannot access landlord portal.
+  - Rejection email sent to applicant (future enhancement).
+- **Decision audit**:
+  - Admin can view review timestamp and rejection reason in application details.
+  - Supports compliance and dispute resolution.
+- **Admin authentication**:
+  - Only users with `role = 'admin'` can access this page.
+  - Redirects non-admin users to home page with access denied message.
+
+## AI & Automation
+### Maintenance AI
+- **Endpoint**: POST `/api/ai/analyze-maintenance`
+- **Request body**:
+  - `description`: String (title + description of maintenance issue).
+  - `image`: File (optional, for future image-based AI analysis).
+- **Processing**:
+  - Keyword-based classification (simulated AI, can be replaced with OpenAI/Claude API).
+  - Examines description for keywords:
+    - **Plumbing**: "leak", "water", "drip" → Category: Plumbing, Severity: High, Cost: ₱150–₱400.
+    - **Electrical**: "smoke", "fire", "spark", "electric" → Category: Electrical, Severity: Critical, Cost: ₱200–₱600.
+    - **Security**: "lock", "door", "key" → Category: Security, Severity: High, Cost: ₱100–₱250.
+    - **HVAC**: "ac", "heat", "cool" → Category: HVAC, Severity: Medium, Cost: ₱150–₱500.
+    - **Default**: Generic maintenance category and summary.
+- **Response**:
+  - `category`: String (Plumbing, Electrical, Security, HVAC, General Maintenance).
+  - `severity`: String (Critical, High, Medium, Low).
+  - `summary`: Natural language description of issue and risk.
+  - `action`: Recommended next step (e.g., "Dispatch licensed plumber immediately").
+  - `estimatedCost`: String (e.g., "₱150 - ₱400").
+  - `confidence`: Float (0.0–1.0, default 0.95).
+- **Use case**: Landlords submit maintenance request → AI instantly categorizes and suggests action → Landlord can route to contractor or mark priority.
+
+### Concierge Knowledge Base
+- **Structure**: Per-property question/answer database.
+- **Landlord admin interface** (ConciergeModal):
+  - Input form: Category dropdown, Topic (question), Content (answer).
+  - Add button saves knowledge item.
+  - Delete button removes item.
+  - List shows all knowledge items per property.
+- **Database storage**:
+  - Table: `property_knowledge_base`
+  - Fields: id, property_id, category, topic, content, created_at.
+- **Tenant assistant AI**:
+  - Query function: Tenant asks question → System searches knowledge base.
+  - Scoring algorithm:
+    - Match by topic keyword (50 points).
+    - Match by category (20 points).
+    - Keyword overlap in content (5 points).
+  - Returns item with highest score if > 10.
+  - Returns fallback message if no match.
+- **Categories**: General, WiFi & Internet, Trash & Recycling, Emergency, Amenities, Policies.
+- **Use case**: 
+  - Landlord adds: Topic="What's the WiFi password?", Content="The password is House123!".
+  - Tenant asks concierge: "What's the wifi?" → Fuzzy matched to topic → Returns answer.
+  - Reduces support overhead by automating FAQ.

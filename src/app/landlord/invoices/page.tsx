@@ -36,9 +36,30 @@ type Unit = {
     property_id: string;
 };
 
+type PaymentSubmission = {
+    id: string;
+    invoice_id: string;
+    tenant_id: string;
+    tenant_email: string | null;
+    amount: number;
+    reference_number: string | null;
+    receipt_url: string;
+    status: 'pending' | 'approved' | 'rejected';
+    created_at: string;
+    invoice?: {
+        id: string;
+        tenant_name: string;
+        tenant_email: string | null;
+        description: string | null;
+        amount: number;
+        due_date: string;
+    } | null;
+};
+
 export default function InvoicesPage() {
     const [invoices, setInvoices] = useState<Invoice[]>([]);
     const [units, setUnits] = useState<Unit[]>([]);
+    const [paymentSubmissions, setPaymentSubmissions] = useState<PaymentSubmission[]>([]);
     const [isLoading, setIsLoading] = useState(true);
     const [showModal, setShowModal] = useState(false);
     const [filter, setFilter] = useState<'all' | 'paid' | 'pending' | 'overdue'>('all');
@@ -70,6 +91,11 @@ export default function InvoicesPage() {
             .select('*')
             .order('created_at', { ascending: false });
 
+        const { data: paymentData } = await supabase
+            .from('payment_submissions')
+            .select('*, invoice:invoices(id, tenant_name, tenant_email, description, amount, due_date)')
+            .order('created_at', { ascending: false });
+
         // Fetch units for dropdown
         const { data: properties } = await supabase
             .from('properties')
@@ -93,6 +119,10 @@ export default function InvoicesPage() {
                 }
             });
             setUnits(allUnits);
+        }
+
+        if (paymentData) {
+            setPaymentSubmissions(paymentData as PaymentSubmission[]);
         }
 
         setIsLoading(false);
@@ -140,6 +170,29 @@ export default function InvoicesPage() {
         }
 
         await supabase.from('invoices').update(updates).eq('id', id);
+        fetchData();
+    };
+
+    const handleReviewSubmission = async (submission: PaymentSubmission, action: 'approved' | 'rejected') => {
+        const { data: { user } } = await supabase.auth.getUser();
+        if (!user) return;
+
+        await supabase
+            .from('payment_submissions')
+            .update({
+                status: action,
+                reviewed_by: user.id,
+                reviewed_at: new Date().toISOString()
+            })
+            .eq('id', submission.id);
+
+        if (action === 'approved') {
+            await supabase
+                .from('invoices')
+                .update({ status: 'paid', paid_at: new Date().toISOString() })
+                .eq('id', submission.invoice_id);
+        }
+
         fetchData();
     };
 
@@ -200,6 +253,109 @@ export default function InvoicesPage() {
                     <span className={`${styles.statValue} ${styles.red}`}>
                         ₱{(stats.totalAmount - stats.paidAmount).toLocaleString()}
                     </span>
+                </div>
+            </div>
+
+            {/* Payment Submissions */}
+            <div className={styles.paymentsCard}>
+                <div className={styles.paymentsHeader}>
+                    <div>
+                        <h2 className={styles.paymentsTitle}>Payment Submissions</h2>
+                        <p className={styles.paymentsSubtitle}>Review tenant payment receipts</p>
+                    </div>
+                </div>
+                <div className={styles.tableWrapper}>
+                    <table className={styles.table}>
+                        <thead>
+                            <tr>
+                                <th>Tenant</th>
+                                <th>Invoice</th>
+                                <th>Amount</th>
+                                <th>Reference</th>
+                                <th>Submitted</th>
+                                <th>Status</th>
+                                <th>Actions</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            {paymentSubmissions.length > 0 ? (
+                                paymentSubmissions.map(submission => (
+                                    <tr key={submission.id}>
+                                        <td>
+                                            <div className={styles.tenantCell}>
+                                                <div className={styles.avatar}>
+                                                    {(submission.invoice?.tenant_name || submission.tenant_email || 'T')[0]}
+                                                </div>
+                                                <div>
+                                                    <span className={styles.tenantName}>{submission.invoice?.tenant_name || 'Tenant'}</span>
+                                                    {submission.tenant_email && (
+                                                        <span className={styles.tenantEmail}>{submission.tenant_email}</span>
+                                                    )}
+                                                </div>
+                                            </div>
+                                        </td>
+                                        <td>
+                                            <div className={styles.invoiceId}>
+                                                <Receipt size={16} />
+                                                #{submission.invoice_id.slice(0, 8).toUpperCase()}
+                                            </div>
+                                            <div className={styles.submissionMeta}>
+                                                {submission.invoice?.description || 'Rent Payment'}
+                                            </div>
+                                        </td>
+                                        <td className={styles.amount}>₱{Number(submission.amount).toLocaleString()}</td>
+                                        <td>{submission.reference_number || '-'}</td>
+                                        <td>{new Date(submission.created_at).toLocaleDateString()}</td>
+                                        <td>
+                                            <span
+                                                className={`${styles.reviewBadge} ${submission.status === 'approved'
+                                                    ? styles.reviewBadgeApproved
+                                                    : submission.status === 'rejected'
+                                                        ? styles.reviewBadgeRejected
+                                                        : styles.reviewBadgePending}`}
+                                            >
+                                                {submission.status}
+                                            </span>
+                                        </td>
+                                        <td>
+                                            <div className={styles.reviewActions}>
+                                                <a
+                                                    className={styles.receiptLink}
+                                                    href={submission.receipt_url}
+                                                    target="_blank"
+                                                    rel="noreferrer"
+                                                >
+                                                    View Receipt
+                                                </a>
+                                                {submission.status === 'pending' && (
+                                                    <>
+                                                        <button
+                                                            className={styles.approveBtn}
+                                                            onClick={() => handleReviewSubmission(submission, 'approved')}
+                                                        >
+                                                            Approve
+                                                        </button>
+                                                        <button
+                                                            className={styles.rejectBtn}
+                                                            onClick={() => handleReviewSubmission(submission, 'rejected')}
+                                                        >
+                                                            Reject
+                                                        </button>
+                                                    </>
+                                                )}
+                                            </div>
+                                        </td>
+                                    </tr>
+                                ))
+                            ) : (
+                                <tr>
+                                    <td colSpan={7} className={styles.emptyRow}>
+                                        No payment submissions yet.
+                                    </td>
+                                </tr>
+                            )}
+                        </tbody>
+                    </table>
                 </div>
             </div>
 

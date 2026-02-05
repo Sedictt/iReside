@@ -155,6 +155,37 @@ CREATE TABLE invoices (
   created_at TIMESTAMP WITH TIME ZONE DEFAULT TIMEZONE('utc'::text, NOW())
 );
 
+-- 7.1 Payment Methods
+CREATE TABLE payment_methods (
+  id UUID DEFAULT gen_random_uuid() PRIMARY KEY,
+  landlord_id UUID REFERENCES profiles(id) ON DELETE CASCADE NOT NULL,
+  property_id UUID REFERENCES properties(id) ON DELETE SET NULL,
+  label TEXT NOT NULL,
+  account_name TEXT,
+  account_number TEXT,
+  qr_url TEXT NOT NULL,
+  instructions TEXT,
+  is_active BOOLEAN DEFAULT TRUE,
+  created_at TIMESTAMP WITH TIME ZONE DEFAULT TIMEZONE('utc'::text, NOW())
+);
+
+-- 7.2 Payment Submissions
+CREATE TABLE payment_submissions (
+  id UUID DEFAULT gen_random_uuid() PRIMARY KEY,
+  invoice_id UUID REFERENCES invoices(id) ON DELETE CASCADE NOT NULL,
+  landlord_id UUID REFERENCES profiles(id) ON DELETE CASCADE NOT NULL,
+  tenant_id UUID REFERENCES profiles(id) ON DELETE CASCADE NOT NULL,
+  tenant_email TEXT,
+  payment_method_id UUID REFERENCES payment_methods(id) ON DELETE SET NULL,
+  amount DECIMAL(12,2) NOT NULL,
+  reference_number TEXT,
+  receipt_url TEXT NOT NULL,
+  status TEXT CHECK (status IN ('pending', 'approved', 'rejected')) DEFAULT 'pending',
+  reviewed_by UUID REFERENCES profiles(id) ON DELETE SET NULL,
+  reviewed_at TIMESTAMP WITH TIME ZONE,
+  created_at TIMESTAMP WITH TIME ZONE DEFAULT TIMEZONE('utc'::text, NOW())
+);
+
 -- 8. Tasks (To-Do List)
 CREATE TABLE tasks (
   id UUID DEFAULT gen_random_uuid() PRIMARY KEY,
@@ -184,6 +215,8 @@ CREATE TABLE transactions (
 
 -- Enable RLS for new tables
 ALTER TABLE invoices ENABLE ROW LEVEL SECURITY;
+ALTER TABLE payment_methods ENABLE ROW LEVEL SECURITY;
+ALTER TABLE payment_submissions ENABLE ROW LEVEL SECURITY;
 ALTER TABLE tasks ENABLE ROW LEVEL SECURITY;
 ALTER TABLE transactions ENABLE ROW LEVEL SECURITY;
 
@@ -191,6 +224,36 @@ ALTER TABLE transactions ENABLE ROW LEVEL SECURITY;
 CREATE POLICY "Landlords can manage their invoices" ON invoices
   FOR ALL USING (landlord_id = auth.uid())
   WITH CHECK (landlord_id = auth.uid());
+
+CREATE POLICY "Tenants can view invoices by email" ON invoices
+  FOR SELECT USING (tenant_email = auth.jwt() ->> 'email');
+
+-- Policies for Payment Methods
+CREATE POLICY "Landlords can manage their payment methods" ON payment_methods
+  FOR ALL USING (landlord_id = auth.uid())
+  WITH CHECK (landlord_id = auth.uid());
+
+CREATE POLICY "Tenants can view payment methods for their leases" ON payment_methods
+  FOR SELECT USING (
+    EXISTS (
+      SELECT 1 FROM leases
+      JOIN units ON units.id = leases.unit_id
+      JOIN properties ON properties.id = units.property_id
+      WHERE leases.tenant_id = auth.uid()
+      AND properties.landlord_id = payment_methods.landlord_id
+    )
+  );
+
+-- Policies for Payment Submissions
+CREATE POLICY "Landlords can manage payment submissions" ON payment_submissions
+  FOR ALL USING (landlord_id = auth.uid())
+  WITH CHECK (landlord_id = auth.uid());
+
+CREATE POLICY "Tenants can create payment submissions" ON payment_submissions
+  FOR INSERT WITH CHECK (tenant_id = auth.uid());
+
+CREATE POLICY "Tenants can view their payment submissions" ON payment_submissions
+  FOR SELECT USING (tenant_id = auth.uid());
 
 -- Policies for Tasks
 CREATE POLICY "Landlords can manage their tasks" ON tasks

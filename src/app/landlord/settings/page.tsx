@@ -6,6 +6,8 @@ import {
     Bell,
     Shield,
     CreditCard,
+    QrCode,
+    Upload,
     Palette,
     Camera,
     Lock,
@@ -52,6 +54,18 @@ type PreferenceSettings = {
     dateFormat: string;
 };
 
+type PaymentMethod = {
+    id: string;
+    landlord_id: string;
+    label: string;
+    account_name: string | null;
+    account_number: string | null;
+    qr_url: string;
+    instructions: string | null;
+    is_active: boolean;
+    created_at: string;
+};
+
 export default function SettingsPage() {
     const [activeTab, setActiveTab] = useState<TabType>('profile');
     const [isLoading, setIsLoading] = useState(true);
@@ -86,6 +100,17 @@ export default function SettingsPage() {
         dateFormat: 'DD/MM/YYYY'
     });
 
+    const [paymentMethods, setPaymentMethods] = useState<PaymentMethod[]>([]);
+    const [paymentForm, setPaymentForm] = useState({
+        label: 'GCash',
+        account_name: '',
+        account_number: '',
+        instructions: '',
+        qrFile: null as File | null
+    });
+    const [paymentError, setPaymentError] = useState('');
+    const [isUploadingPayment, setIsUploadingPayment] = useState(false);
+
     const [passwordFields, setPasswordFields] = useState({
         currentPassword: '',
         newPassword: '',
@@ -93,6 +118,22 @@ export default function SettingsPage() {
     });
 
     const supabase = useMemo(() => createClient(), []);
+
+    const fetchPaymentMethods = useCallback(async (landlordId?: string) => {
+        const { data: { user } } = await supabase.auth.getUser();
+        const ownerId = landlordId || user?.id;
+        if (!ownerId) return;
+
+        const { data } = await supabase
+            .from('payment_methods')
+            .select('*')
+            .eq('landlord_id', ownerId)
+            .order('created_at', { ascending: false });
+
+        if (data) {
+            setPaymentMethods(data as PaymentMethod[]);
+        }
+    }, [supabase]);
 
     const fetchUserData = useCallback(async () => {
         setIsLoading(true);
@@ -108,6 +149,8 @@ export default function SettingsPage() {
                 address: user.user_metadata?.address || ''
             });
 
+            await fetchPaymentMethods(user.id);
+
             // Load notification settings from localStorage or user metadata
             const savedNotifications = localStorage.getItem('notificationSettings');
             if (savedNotifications) {
@@ -120,7 +163,7 @@ export default function SettingsPage() {
             }
         }
         setIsLoading(false);
-    }, [supabase]);
+    }, [fetchPaymentMethods, supabase]);
 
     useEffect(() => {
         fetchUserData();
@@ -188,6 +231,93 @@ export default function SettingsPage() {
             showFeedback('Failed to change password');
         }
         setIsSaving(false);
+    };
+
+    const handlePaymentMethodSave = async () => {
+        if (!profile.id) return;
+        setPaymentError('');
+
+        if (!paymentForm.qrFile) {
+            setPaymentError('Upload a QR code image.');
+            return;
+        }
+
+        setIsUploadingPayment(true);
+        try {
+            const fileName = `${profile.id}/${Date.now()}_${paymentForm.qrFile.name}`;
+            const { error: uploadError } = await supabase
+                .storage
+                .from('payment-qr-codes')
+                .upload(fileName, paymentForm.qrFile, { cacheControl: '3600' });
+
+            if (uploadError) throw uploadError;
+
+            const { data: { publicUrl } } = supabase
+                .storage
+                .from('payment-qr-codes')
+                .getPublicUrl(fileName);
+
+            const { data, error: insertError } = await supabase
+                .from('payment_methods')
+                .insert({
+                    landlord_id: profile.id,
+                    label: paymentForm.label,
+                    account_name: paymentForm.account_name || null,
+                    account_number: paymentForm.account_number || null,
+                    instructions: paymentForm.instructions || null,
+                    qr_url: publicUrl,
+                    is_active: true
+                })
+                .select('*')
+                .single();
+
+            if (insertError) throw insertError;
+
+            await supabase
+                .from('payment_methods')
+                .update({ is_active: false })
+                .eq('landlord_id', profile.id)
+                .neq('id', data.id);
+
+            setPaymentForm({
+                label: 'GCash',
+                account_name: '',
+                account_number: '',
+                instructions: '',
+                qrFile: null
+            });
+            await fetchPaymentMethods(profile.id);
+            showFeedback('Payment method saved.');
+        } catch (error: any) {
+            console.error('Failed to save payment method:', error);
+            setPaymentError(error.message || 'Failed to save payment method.');
+        } finally {
+            setIsUploadingPayment(false);
+        }
+    };
+
+    const handleSetActivePaymentMethod = async (methodId: string) => {
+        if (!profile.id) return;
+        await supabase
+            .from('payment_methods')
+            .update({ is_active: false })
+            .eq('landlord_id', profile.id);
+
+        await supabase
+            .from('payment_methods')
+            .update({ is_active: true })
+            .eq('id', methodId);
+
+        fetchPaymentMethods(profile.id);
+    };
+
+    const handleDeactivatePaymentMethod = async (methodId: string) => {
+        await supabase
+            .from('payment_methods')
+            .update({ is_active: false })
+            .eq('id', methodId);
+
+        fetchPaymentMethods(profile.id);
     };
 
     const toggleNotification = (key: keyof NotificationSettings) => {
@@ -642,29 +772,128 @@ export default function SettingsPage() {
                                 <CreditCard size={20} />
                             </div>
                             <div>
-                                <h2 className={styles.sectionTitle}>Payment Method</h2>
-                                <p className={styles.sectionDescription}>Manage your payment information</p>
+                                <h2 className={styles.sectionTitle}>Tenant Payment Methods</h2>
+                                <p className={styles.sectionDescription}>Upload your GCash QR and payment details for tenants</p>
                             </div>
                         </div>
                         <div className={styles.sectionBody}>
-                            <div className={styles.securityCard}>
-                                <div className={styles.securityIcon}>
-                                    <CreditCard size={24} />
+                            {paymentMethods.length > 0 ? (
+                                <div className={styles.paymentList}>
+                                    {paymentMethods.map(method => (
+                                        <div key={method.id} className={styles.paymentCard}>
+                                            <div className={styles.paymentQr}>
+                                                <img src={method.qr_url} alt="Payment QR" />
+                                            </div>
+                                            <div className={styles.paymentDetails}>
+                                                <div className={styles.paymentTitle}>
+                                                    <QrCode size={18} />
+                                                    {method.label}
+                                                </div>
+                                                <p>{method.account_name || 'Account name not set'}</p>
+                                                {method.account_number && (
+                                                    <span className={styles.paymentMeta}>{method.account_number}</span>
+                                                )}
+                                                {method.instructions && (
+                                                    <span className={styles.paymentMeta}>{method.instructions}</span>
+                                                )}
+                                            </div>
+                                            <div className={styles.paymentActions}>
+                                                <span className={`${styles.paymentStatus} ${method.is_active ? styles.statusEnabled : styles.statusDisabled}`}>
+                                                    {method.is_active ? 'Active' : 'Inactive'}
+                                                </span>
+                                                {!method.is_active && (
+                                                    <button
+                                                        className={styles.secondaryBtn}
+                                                        onClick={() => handleSetActivePaymentMethod(method.id)}
+                                                    >
+                                                        Set Active
+                                                    </button>
+                                                )}
+                                                {method.is_active && (
+                                                    <button
+                                                        className={styles.secondaryBtn}
+                                                        onClick={() => handleDeactivatePaymentMethod(method.id)}
+                                                    >
+                                                        Deactivate
+                                                    </button>
+                                                )}
+                                            </div>
+                                        </div>
+                                    ))}
                                 </div>
-                                <div className={styles.securityInfo}>
-                                    <h4>•••• •••• •••• 4242</h4>
-                                    <p>Expires 08/2027</p>
+                            ) : (
+                                <div className={styles.emptyState}>No payment methods yet. Upload your GCash QR to get started.</div>
+                            )}
+
+                            <div className={styles.formRow}>
+                                <div className={styles.formGroup}>
+                                    <label className={styles.label}>Label</label>
+                                    <input
+                                        className={styles.input}
+                                        type="text"
+                                        value={paymentForm.label}
+                                        onChange={(e) => setPaymentForm(prev => ({ ...prev, label: e.target.value }))}
+                                        placeholder="GCash"
+                                    />
                                 </div>
-                                <span className={`${styles.securityStatus} ${styles.statusEnabled}`}>
-                                    <Check size={12} /> Default
-                                </span>
-                                <button className={styles.secondaryBtn}>Update</button>
+                                <div className={styles.formGroup}>
+                                    <label className={styles.label}>Account Name</label>
+                                    <input
+                                        className={styles.input}
+                                        type="text"
+                                        value={paymentForm.account_name}
+                                        onChange={(e) => setPaymentForm(prev => ({ ...prev, account_name: e.target.value }))}
+                                        placeholder="Juan Dela Cruz"
+                                    />
+                                </div>
+                            </div>
+
+                            <div className={styles.formRow}>
+                                <div className={styles.formGroup}>
+                                    <label className={styles.label}>Account Number</label>
+                                    <input
+                                        className={styles.input}
+                                        type="text"
+                                        value={paymentForm.account_number}
+                                        onChange={(e) => setPaymentForm(prev => ({ ...prev, account_number: e.target.value }))}
+                                        placeholder="0917 123 4567"
+                                    />
+                                </div>
+                                <div className={styles.formGroup}>
+                                    <label className={styles.label}>Instructions</label>
+                                    <input
+                                        className={styles.input}
+                                        type="text"
+                                        value={paymentForm.instructions}
+                                        onChange={(e) => setPaymentForm(prev => ({ ...prev, instructions: e.target.value }))}
+                                        placeholder="Include invoice ID in note"
+                                    />
+                                </div>
+                            </div>
+
+                            <div className={styles.formGroupFull}>
+                                <label className={styles.label}>Upload QR Code</label>
+                                <div className={styles.fileUpload}>
+                                    <input
+                                        type="file"
+                                        accept="image/*"
+                                        onChange={(e) => setPaymentForm(prev => ({ ...prev, qrFile: e.target.files?.[0] || null }))}
+                                    />
+                                    <div className={styles.fileUploadInfo}>
+                                        <Upload size={18} />
+                                        <span>{paymentForm.qrFile ? paymentForm.qrFile.name : 'Choose a QR image file'}</span>
+                                    </div>
+                                </div>
+                                {paymentError && <p className={styles.errorText}>{paymentError}</p>}
                             </div>
 
                             <div className={styles.buttonRow}>
-                                <button className={styles.secondaryBtn}>
-                                    <CreditCard size={16} />
-                                    Add Payment Method
+                                <button
+                                    className={styles.primaryBtn}
+                                    onClick={handlePaymentMethodSave}
+                                    disabled={isUploadingPayment}
+                                >
+                                    {isUploadingPayment ? 'Saving...' : 'Save Payment Method'}
                                 </button>
                             </div>
                         </div>
