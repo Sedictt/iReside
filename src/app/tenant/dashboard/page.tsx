@@ -486,9 +486,7 @@ export default function TenantDashboard() {
                                 <tbody>
                                     {recentPayments.length > 0 ? (
                                         recentPayments.map(payment => {
-                                            const invoiceDescription = Array.isArray(payment.invoice)
-                                                ? payment.invoice[0]?.description
-                                                : payment.invoice?.description;
+                                            const invoiceDescription = payment.invoice?.[0]?.description;
 
                                             return (
                                                 <tr key={payment.id}>
