@@ -217,6 +217,10 @@
     position: relative;
 }
 
+.sidebar:not(:hover) .navItem {
+    justify-content: center;
+}
+
 .sidebar:hover .navItem {
     padding: 0.75rem 1rem;
 }
@@ -241,7 +245,13 @@
     height: 60%;
     background: #6366f1;
     border-radius: 0 3px 3px 0;
+    transition: opacity 0.2s ease;
 }
+
+/* Hide active indicator in collapsed mode if aesthetics require, 
+   but usually vertical bar is fine. Optional: hide it if it looks weird centered.
+   For now keeping it.
+*/
 
 .navIcon {
     display: flex;
@@ -256,51 +266,56 @@
     font-weight: 500;
     white-space: nowrap;
     opacity: 0;
-    transition: opacity 0.2s ease;
+    width: 0;
+    overflow: hidden;
+    transition: opacity 0.2s ease, width 0s linear 0.2s;
+    /* delay width change */
 }
 
 .sidebar:hover .navLabel {
     opacity: 1;
+    width: auto;
+    transition: opacity 0.2s ease, width 0s linear 0s;
 }
 
 .badge {
-    margin-left: auto;
-    min-width: 20px;
-    height: 20px;
     background: #ef4444;
     color: white;
-    font-size: 0.7rem;
-    font-weight: 700;
     border-radius: 10px;
     display: flex;
     align-items: center;
     justify-content: center;
-    padding: 0 6px;
-    opacity: 0;
-    transition: opacity 0.2s ease;
-    position: relative;
+    transition: all 0.2s ease;
+    z-index: 10;
 }
 
-/* Show a small dot indicator when sidebar is collapsed */
-.badge::before {
-    content: '';
+/* Collapsed State: Small Dot */
+.sidebar:not(:hover) .badge {
     position: absolute;
-    top: -2px;
-    right: -2px;
-    width: 8px;
+    top: 10px;
+    right: 28px;
+    /* Position over the icon */
+    min-width: 8px;
     height: 8px;
-    background: #ef4444;
+    padding: 0;
+    font-size: 0;
     border: 2px solid #1e293b;
-    border-radius: 50%;
-    opacity: 1;
+    /* Cutout effect against background */
+    margin: 0;
 }
 
+/* Expanded State: Pill */
 .sidebar:hover .badge {
-    opacity: 1;
-}
-
-.sidebar:hover .badge::before {
-    opacity: 0;
+    margin-left: auto;
+    min-width: 20px;
+    height: 20px;
+    font-size: 0.7rem;
+    font-weight: 700;
+    padding: 0 6px;
+    position: relative;
+    top: auto;
+    right: auto;
+    border: none;
 }
 
 

@@ -2,9 +2,10 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { Loader2, Users } from "lucide-react";
+import { Loader2, Users, FileSignature } from "lucide-react";
 import { createClient } from "@/utils/supabase/client";
 import styles from "./tenants.module.css";
+import LandlordSigningModal from "@/components/landlord/LandlordSigningModal";
 
 type TenantProfile = {
     id: string;
@@ -31,6 +32,8 @@ type Lease = {
 export default function TenantsPage() {
     const [leases, setLeases] = useState<Lease[]>([]);
     const [isLoading, setIsLoading] = useState(true);
+    const [selectedLease, setSelectedLease] = useState<Lease | null>(null);
+    const [isSignModalOpen, setIsSignModalOpen] = useState(false);
 
     const supabase = useMemo(() => createClient(), []);
 
@@ -55,7 +58,8 @@ export default function TenantsPage() {
                     properties (name)
                 )
             `)
-            .eq('status', 'active');
+            .in('status', ['active', 'pending_landlord'])
+            .order('created_at', { ascending: false });
 
         if (data) {
             setLeases(data as any);
@@ -137,9 +141,23 @@ export default function TenantsPage() {
                                         ₱{lease.rent_amount.toLocaleString()}
                                     </td>
                                     <td>
-                                        <span className={styles.statusBadge} style={{ background: '#dcfce7', color: '#166534' }}>
-                                            Active
-                                        </span>
+                                        {lease.status === 'pending_landlord' ? (
+                                            <button
+                                                className={styles.actionBtn}
+                                                style={{ background: '#0ea5e9', color: 'white', padding: '0.4rem 0.8rem', borderRadius: '6px', border: 'none', cursor: 'pointer', fontSize: '0.8rem', display: 'flex', alignItems: 'center', gap: '0.3rem' }}
+                                                onClick={() => {
+                                                    setSelectedLease(lease);
+                                                    setIsSignModalOpen(true);
+                                                }}
+                                            >
+                                                <FileSignature size={14} />
+                                                Countersign
+                                            </button>
+                                        ) : (
+                                            <span className={styles.statusBadge} style={{ background: '#dcfce7', color: '#166534' }}>
+                                                Active
+                                            </span>
+                                        )}
                                     </td>
                                 </tr>
                             ))
@@ -147,6 +165,41 @@ export default function TenantsPage() {
                     </tbody>
                 </table>
             </div>
+
+            {selectedLease && (
+                <LandlordSigningModal
+                    isOpen={isSignModalOpen}
+                    onClose={() => setIsSignModalOpen(false)}
+                    onSign={async (signatureDataUrl) => {
+                        const { data: { user } } = await supabase.auth.getUser();
+                        if (!user) return;
+
+                        try {
+                            const fileName = `${user.id}/${selectedLease.id}_landlord_signature_${Date.now()}.png`;
+                            const { error: uploadError } = await supabase.storage.from('signatures').upload(fileName, await (await fetch(signatureDataUrl)).blob());
+                            if (uploadError) throw uploadError;
+
+                            const { data: { publicUrl } } = supabase.storage.from('signatures').getPublicUrl(fileName);
+
+                            const { error: updateError } = await supabase.from('leases').update({
+                                status: 'active',
+                                landlord_signature_url: publicUrl,
+                                landlord_signed_at: new Date().toISOString()
+                            }).eq('id', selectedLease.id);
+
+                            if (updateError) throw updateError;
+
+                            setIsSignModalOpen(false);
+                            fetchTenants();
+                        } catch (err) {
+                            console.error(err);
+                            alert('Failed to sign lease');
+                        }
+                    }}
+                    tenantName={selectedLease.profiles?.full_name || 'Tenant'}
+                    propertyName={selectedLease.units?.properties?.name || 'Property'}
+                />
+            )}
         </div>
     );
 }

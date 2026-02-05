@@ -6,6 +6,7 @@ import { useRouter } from "next/navigation";
 import styles from "./page.module.css";
 import { Mail, Phone, Calendar, MapPin, Clock, CheckCircle, Eye, Archive, FileText, MessageSquare } from "lucide-react";
 import RequestDecisionModal from "@/components/landlord/RequestDecisionModal";
+import CreateLeaseModal from "@/components/landlord/CreateLeaseModal";
 
 type Inquiry = {
     id: string;
@@ -22,7 +23,9 @@ type Inquiry = {
     listing?: {
         title: string;
         display_address: string;
+
         city: string;
+        property_id: string;
     };
 };
 
@@ -33,7 +36,9 @@ export default function InquiriesPage() {
     const [loading, setLoading] = useState(true);
     const [statusFilter, setStatusFilter] = useState<StatusFilter>('all');
     const [selectedInquiry, setSelectedInquiry] = useState<Inquiry | null>(null);
+
     const [isDecisionModalOpen, setIsDecisionModalOpen] = useState(false);
+    const [isLeaseModalOpen, setIsLeaseModalOpen] = useState(false);
     const router = useRouter();
 
     useEffect(() => {
@@ -62,7 +67,8 @@ export default function InquiriesPage() {
                         display_address,
                         city,
                         price_display,
-                        price_range_min
+                        price_range_min,
+                        property_id
                     )
                 `)
                 .order('created_at', { ascending: false });
@@ -406,8 +412,8 @@ export default function InquiriesPage() {
                             isOpen={isDecisionModalOpen}
                             onClose={() => setIsDecisionModalOpen(false)}
                             onApprove={() => {
-                                handleStartChat(selectedInquiry);
                                 setIsDecisionModalOpen(false);
+                                setIsLeaseModalOpen(true);
                             }}
                             onReject={() => {
                                 updateInquiryStatus(selectedInquiry.id, 'archived');
@@ -426,6 +432,20 @@ export default function InquiriesPage() {
                                 city: selectedInquiry.listing.city,
                                 price: (selectedInquiry.listing as any).price_display || ((selectedInquiry.listing as any).price_range_min ? `₱${(selectedInquiry.listing as any).price_range_min.toLocaleString()}` : null)
                             } : undefined}
+
+                        />
+
+                        <CreateLeaseModal
+                            isOpen={isLeaseModalOpen}
+                            onClose={() => setIsLeaseModalOpen(false)}
+                            onSuccess={() => {
+                                updateInquiryStatus(selectedInquiry.id, 'replied');
+                                router.push('/landlord/tenants');
+                            }}
+                            propertyId={selectedInquiry.listing?.property_id || ""}
+                            tenantId={selectedInquiry.user_id}
+                            tenantName={selectedInquiry.name}
+                            tenantEmail={selectedInquiry.email}
                         />
                     </>
                 ) : (
