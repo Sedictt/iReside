@@ -200,22 +200,43 @@ export default function VisualBuilder({ propertyId, initialUnits = [], readOnly 
 
         // DELETE ACTION
         if (over.id === 'trash-zone' && !active.data.current?.isPreset) {
+            // Optimistic Delete
+            const previousUnits = [...units];
+            setUnits(prev => prev.filter(u => u.id !== active.id));
+
             const { error } = await supabase
                 .from('units')
                 .delete()
                 .eq('id', active.id);
 
-            if (!error) {
-                setUnits(prev => prev.filter(u => u.id !== active.id));
+            if (error) {
+                // Revert if failed
+                setUnits(previousUnits);
             }
             return;
         }
 
         if (active.data.current?.isPreset) {
-            // SAVE TO SUPABASE
+            // CREATE NEW UNIT
             const unitType = activeType as UnitType;
             const unitNumber = `${finalGhost.y}${Math.floor(finalGhost.x / 2) + 10}`; // Simple generator
+            const rentAmount = unitType === 'studio' ? 1200 : unitType === '1br' ? 1800 : 2500;
 
+            // 1. Optimistic Update
+            const tempId = `temp-${Date.now()}`;
+            const optimisticUnit: Unit = {
+                id: tempId,
+                type: unitType,
+                gridX: finalGhost.x,
+                gridY: finalGhost.y,
+                status: 'vacant',
+                unitNumber: unitNumber,
+                rentAmount: rentAmount
+            };
+
+            setUnits(prev => [...prev, optimisticUnit]);
+
+            // 2. Sync to DB
             const { data, error: _error } = await supabase
                 .from('units')
                 .insert([{
@@ -224,24 +245,33 @@ export default function VisualBuilder({ propertyId, initialUnits = [], readOnly 
                     grid_x: finalGhost.x,
                     grid_y: finalGhost.y,
                     unit_number: unitNumber,
-                    rent_amount: unitType === 'studio' ? 1200 : unitType === '1br' ? 1800 : 2500,
+                    rent_amount: rentAmount,
                     status: 'available'
                 }])
                 .select();
 
             if (data) {
+                // 3. Confirm (Swap Temp ID for Real ID)
                 const newUnit = data[0];
-                setUnits(prev => [...prev, {
-                    id: newUnit.id,
-                    type: newUnit.unit_type as UnitType,
-                    gridX: newUnit.grid_x,
-                    gridY: newUnit.grid_y,
-                    status: 'vacant',
-                    unitNumber: newUnit.unit_number
-                }]);
+                setUnits(prev => prev.map(u =>
+                    u.id === tempId ? { ...u, id: newUnit.id } : u
+                ));
+            } else {
+                // 4. Revert on Error
+                setUnits(prev => prev.filter(u => u.id !== tempId));
             }
         } else {
-            // UPDATE IN SUPABASE
+            // MOVE EXISTING UNIT
+
+            // 1. Optimistic Update
+            const previousUnits = [...units];
+            setUnits(prev => prev.map(u =>
+                u.id === active.id
+                    ? { ...u, gridX: finalGhost.x, gridY: finalGhost.y }
+                    : u
+            ));
+
+            // 2. Sync to DB
             const { error } = await supabase
                 .from('units')
                 .update({
@@ -250,12 +280,9 @@ export default function VisualBuilder({ propertyId, initialUnits = [], readOnly 
                 })
                 .eq('id', active.id);
 
-            if (!error) {
-                setUnits(prev => prev.map(u =>
-                    u.id === active.id
-                        ? { ...u, gridX: finalGhost.x, gridY: finalGhost.y }
-                        : u
-                ));
+            if (error) {
+                // 3. Revert on Error
+                setUnits(previousUnits);
             }
         }
     };
