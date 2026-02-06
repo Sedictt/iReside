@@ -245,6 +245,16 @@
     margin: 0;
 }
 
+.unitMapIcon {
+    color: #6366f1;
+}
+
+.unitMapDescription {
+    color: #64748b;
+    font-size: 0.9rem;
+    margin: 0 0 1rem 0;
+}
+
 .cardActions {
     display: flex;
     align-items: center;

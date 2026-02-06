@@ -15,6 +15,8 @@ interface Unit {
     gridY: number;
     status: 'occupied' | 'vacant' | 'maintenance' | 'neardue';
     tenantName?: string;
+    tenantIsPrivate?: boolean;
+    tenantAvatarUrl?: string;
     unitNumber?: string;
     rentAmount?: number;
 }
@@ -27,6 +29,9 @@ type InitialUnit = {
     status: string;
     unit_number?: string | null;
     rent_amount?: number | null;
+    tenant_name?: string | null;
+    tenant_is_private?: boolean | null;
+    tenant_avatar_url?: string | null;
 };
 
 type GhostState = { x: number; y: number; widthCells: number; valid: boolean };
@@ -45,28 +50,48 @@ const unitConfig: Record<UnitType, { cells: number; label: string }> = {
 
 import { createClient } from '@/utils/supabase/client';
 
-function mapDbStatusToUi(status: string, readOnly: boolean = false): Unit['status'] {
-    if (readOnly) {
-        // In read-only (tenant) view, simplify to occupied or vacant
-        if (status === 'available' || status === 'vacant') return 'vacant';
-        return 'occupied';
-    }
+function mapDbStatusToUi(status: string): Unit['status'] {
     if (status === 'available') return 'vacant';
     if (status === 'vacant') return 'vacant';
     if (status === 'occupied' || status === 'maintenance' || status === 'neardue') return status;
     return 'vacant';
 }
 
-export default function VisualBuilder({ propertyId, initialUnits = [], readOnly = false, onUnitClick }: { propertyId: string, initialUnits?: InitialUnit[], readOnly?: boolean, onUnitClick?: (unit: InitialUnit) => void }) {
-    const [units, setUnits] = useState<Unit[]>(initialUnits.map((u) => ({
+export default function VisualBuilder({
+    propertyId,
+    initialUnits = [],
+    readOnly = false,
+    selectedUnitId = null,
+    onUnitClick,
+    onUnitMessageClick,
+    currentUserUnitId = null,
+    currentUserInitials,
+    currentUserAvatarUrl
+}: {
+    propertyId: string;
+    initialUnits?: InitialUnit[];
+    readOnly?: boolean;
+    selectedUnitId?: string | null;
+    onUnitClick?: (unitId: string) => void;
+    onUnitMessageClick?: (unitId: string) => void;
+    currentUserUnitId?: string | null;
+    currentUserInitials?: string;
+    currentUserAvatarUrl?: string | null;
+}) {
+    const mapInitialUnits = (items: InitialUnit[]) => items.map((u) => ({
         id: u.id,
         type: u.unit_type as UnitType,
         gridX: u.grid_x,
         gridY: u.grid_y,
-        status: mapDbStatusToUi(u.status, readOnly),
+        status: mapDbStatusToUi(u.status),
         unitNumber: u.unit_number ?? undefined,
-        rentAmount: u.rent_amount ?? undefined
-    })));
+        rentAmount: u.rent_amount ?? undefined,
+        tenantName: u.tenant_name ?? undefined,
+        tenantIsPrivate: u.tenant_is_private ?? undefined,
+        tenantAvatarUrl: u.tenant_avatar_url ?? undefined
+    }));
+
+    const [units, setUnits] = useState<Unit[]>(mapInitialUnits(initialUnits));
     const supabase = createClient();
 
     // Drag State
@@ -115,9 +140,15 @@ export default function VisualBuilder({ propertyId, initialUnits = [], readOnly 
         return () => cancelAnimationFrame(id);
     }, []);
 
+    useEffect(() => {
+        if (!readOnly) return;
+        setUnits(mapInitialUnits(initialUnits));
+    }, [initialUnits, readOnly]);
+
     // --- Drag Logic ---
 
     const handleDragStart = (event: DragStartEvent) => {
+        if (readOnly) return;
         const { active } = event;
         setActiveId(active.id as string);
 
@@ -139,6 +170,7 @@ export default function VisualBuilder({ propertyId, initialUnits = [], readOnly 
     };
 
     const handleDragMove = (event: DragMoveEvent) => {
+        if (readOnly) return;
         const { active } = event;
         if (!activeType || !viewportRef.current) return;
 
@@ -189,6 +221,7 @@ export default function VisualBuilder({ propertyId, initialUnits = [], readOnly 
     };
 
     const handleDragEnd = async (event: DragEndEvent) => {
+        if (readOnly) return;
         const { active, over } = event;
         setActiveId(null);
         setActiveType(null);
@@ -200,44 +233,23 @@ export default function VisualBuilder({ propertyId, initialUnits = [], readOnly 
 
         // DELETE ACTION
         if (over.id === 'trash-zone' && !active.data.current?.isPreset) {
-            // Optimistic Delete
-            const previousUnits = [...units];
-            setUnits(prev => prev.filter(u => u.id !== active.id));
-
             const { error } = await supabase
                 .from('units')
                 .delete()
                 .eq('id', active.id);
 
-            if (error) {
-                // Revert if failed
-                setUnits(previousUnits);
+            if (!error) {
+                setUnits(prev => prev.filter(u => u.id !== active.id));
             }
             return;
         }
 
         if (active.data.current?.isPreset) {
-            // CREATE NEW UNIT
+            // SAVE TO SUPABASE
             const unitType = activeType as UnitType;
             const unitNumber = `${finalGhost.y}${Math.floor(finalGhost.x / 2) + 10}`; // Simple generator
-            const rentAmount = unitType === 'studio' ? 1200 : unitType === '1br' ? 1800 : 2500;
 
-            // 1. Optimistic Update
-            const tempId = `temp-${Date.now()}`;
-            const optimisticUnit: Unit = {
-                id: tempId,
-                type: unitType,
-                gridX: finalGhost.x,
-                gridY: finalGhost.y,
-                status: 'vacant',
-                unitNumber: unitNumber,
-                rentAmount: rentAmount
-            };
-
-            setUnits(prev => [...prev, optimisticUnit]);
-
-            // 2. Sync to DB
-            const { data, error: _error } = await supabase
+            const { data, error } = await supabase
                 .from('units')
                 .insert([{
                     property_id: propertyId,
@@ -245,33 +257,24 @@ export default function VisualBuilder({ propertyId, initialUnits = [], readOnly 
                     grid_x: finalGhost.x,
                     grid_y: finalGhost.y,
                     unit_number: unitNumber,
-                    rent_amount: rentAmount,
+                    rent_amount: unitType === 'studio' ? 1200 : unitType === '1br' ? 1800 : 2500,
                     status: 'available'
                 }])
                 .select();
 
             if (data) {
-                // 3. Confirm (Swap Temp ID for Real ID)
                 const newUnit = data[0];
-                setUnits(prev => prev.map(u =>
-                    u.id === tempId ? { ...u, id: newUnit.id } : u
-                ));
-            } else {
-                // 4. Revert on Error
-                setUnits(prev => prev.filter(u => u.id !== tempId));
+                setUnits(prev => [...prev, {
+                    id: newUnit.id,
+                    type: newUnit.unit_type as UnitType,
+                    gridX: newUnit.grid_x,
+                    gridY: newUnit.grid_y,
+                    status: 'vacant',
+                    unitNumber: newUnit.unit_number
+                }]);
             }
         } else {
-            // MOVE EXISTING UNIT
-
-            // 1. Optimistic Update
-            const previousUnits = [...units];
-            setUnits(prev => prev.map(u =>
-                u.id === active.id
-                    ? { ...u, gridX: finalGhost.x, gridY: finalGhost.y }
-                    : u
-            ));
-
-            // 2. Sync to DB
+            // UPDATE IN SUPABASE
             const { error } = await supabase
                 .from('units')
                 .update({
@@ -280,15 +283,23 @@ export default function VisualBuilder({ propertyId, initialUnits = [], readOnly 
                 })
                 .eq('id', active.id);
 
-            if (error) {
-                // 3. Revert on Error
-                setUnits(previousUnits);
+            if (!error) {
+                setUnits(prev => prev.map(u =>
+                    u.id === active.id
+                        ? { ...u, gridX: finalGhost.x, gridY: finalGhost.y }
+                        : u
+                ));
             }
         }
     };
 
     return (
-        <DndContext sensors={sensors} onDragStart={handleDragStart} onDragMove={handleDragMove} onDragEnd={handleDragEnd}>
+        <DndContext
+            sensors={sensors}
+            onDragStart={readOnly ? undefined : handleDragStart}
+            onDragMove={readOnly ? undefined : handleDragMove}
+            onDragEnd={readOnly ? undefined : handleDragEnd}
+        >
             <div style={{ display: 'flex', height: '100%', overflow: 'hidden', background: '#334155', position: 'relative' }}>
 
                 {/* Viewport with Native Scroll */}
@@ -309,15 +320,18 @@ export default function VisualBuilder({ propertyId, initialUnits = [], readOnly 
                         transformOrigin: '0 0',
                         position: 'relative',
                     }}>
-                        <CanvasContent units={units} ghost={ghostState} activeId={activeId} readOnly={readOnly} onUnitClick={onUnitClick ? (u) => onUnitClick({
-                            id: u.id,
-                            unit_type: u.type,
-                            grid_x: u.gridX,
-                            grid_y: u.gridY,
-                            status: u.status,
-                            unit_number: u.unitNumber,
-                            rent_amount: u.rentAmount
-                        }) : undefined} />
+                        <CanvasContent
+                            units={units}
+                            ghost={ghostState}
+                            activeId={activeId}
+                            readOnly={readOnly}
+                            selectedUnitId={selectedUnitId}
+                            onUnitClick={onUnitClick}
+                            onUnitMessageClick={onUnitMessageClick}
+                            currentUserUnitId={currentUserUnitId}
+                            currentUserInitials={currentUserInitials}
+                            currentUserAvatarUrl={currentUserAvatarUrl}
+                        />
 
                         {/* Floor Labels */}
                         {Array.from({ length: 10 }).map((_, i) => (
@@ -341,31 +355,33 @@ export default function VisualBuilder({ propertyId, initialUnits = [], readOnly 
                     </div>
                 </div>
 
-                {/* Sidebar (Hidden in ReadOnly) */}
                 {!readOnly && (
-                    <aside style={{ width: '280px', background: '#1e293b', borderLeft: '1px solid #475569', display: 'flex', flexDirection: 'column', zIndex: 50 }}>
-                        <div style={{ padding: '1.5rem', borderBottom: '1px solid #334155' }}>
-                            <h2 style={{ color: 'white', fontWeight: 700, fontSize: '1.1rem', marginBottom: '0.5rem' }}>Construction Kit</h2>
-                            <p style={{ color: '#94a3b8', fontSize: '0.8rem' }}>Drag rooms onto the property.</p>
-                        </div>
-                        <div style={{ flex: 1, padding: '1.5rem', display: 'flex', flexDirection: 'column', gap: '1rem', overflowY: 'auto' }}>
-                            <SidebarUnit type="studio" label="Studio Apt" icon={<User size={16} />} />
-                            <SidebarUnit type="1br" label="1 Bedroom" icon={<User size={16} />} />
-                            <SidebarUnit type="2br" label="2 Bedroom" icon={<User size={16} />} />
-                            <SidebarUnit type="stairs" label="Stairwell" icon={<ArrowUpFromLine size={16} />} />
-                        </div>
-                    </aside>
-                )}
+                    <>
+                        {/* Sidebar */}
+                        <aside style={{ width: '280px', background: '#1e293b', borderLeft: '1px solid #475569', display: 'flex', flexDirection: 'column', zIndex: 50 }}>
+                            <div style={{ padding: '1.5rem', borderBottom: '1px solid #334155' }}>
+                                <h2 style={{ color: 'white', fontWeight: 700, fontSize: '1.1rem', marginBottom: '0.5rem' }}>Construction Kit</h2>
+                                <p style={{ color: '#94a3b8', fontSize: '0.8rem' }}>Drag rooms onto the property.</p>
+                            </div>
+                            <div style={{ flex: 1, padding: '1.5rem', display: 'flex', flexDirection: 'column', gap: '1rem', overflowY: 'auto' }}>
+                                <SidebarUnit type="studio" label="Studio Apt" icon={<User size={16} />} />
+                                <SidebarUnit type="1br" label="1 Bedroom" icon={<User size={16} />} />
+                                <SidebarUnit type="2br" label="2 Bedroom" icon={<User size={16} />} />
+                                <SidebarUnit type="stairs" label="Stairwell" icon={<ArrowUpFromLine size={16} />} />
+                            </div>
+                        </aside>
 
-                <AnimatePresence>
-                    {isDraggingExistingUnit && !readOnly && (
-                        <TrashZone />
-                    )}
-                </AnimatePresence>
+                        <AnimatePresence>
+                            {isDraggingExistingUnit && (
+                                <TrashZone />
+                            )}
+                        </AnimatePresence>
+                    </>
+                )}
             </div>
 
-            {/* DRAG OVERLAY - Follows Mouse (Screen Space) - Only if not readOnly */}
-            {mounted && !readOnly && createPortal(
+            {/* DRAG OVERLAY - Follows Mouse (Screen Space) */}
+            {!readOnly && mounted && createPortal(
                 <DragOverlay dropAnimation={null} zIndex={9999}>
                     {activeType ? (
                         <div style={{
@@ -378,9 +394,7 @@ export default function VisualBuilder({ propertyId, initialUnits = [], readOnly 
                             display: 'flex', alignItems: 'center', justifyContent: 'center', color: 'white', fontWeight: 'bold',
                             transformOrigin: 'top left',
                         }}>
-                            {activeId && units.find(u => u.id === activeId)?.unitNumber
-                                ? `UNIT ${units.find(u => u.id === activeId)?.unitNumber}`
-                                : unitConfig[activeType].label}
+                            {unitConfig[activeType].label}
                         </div>
                     ) : null}
                 </DragOverlay>,
@@ -391,7 +405,29 @@ export default function VisualBuilder({ propertyId, initialUnits = [], readOnly 
     );
 }
 
-function CanvasContent({ units, ghost, activeId, readOnly, onUnitClick }: { units: Unit[], ghost: GhostState | null, activeId: string | null, readOnly: boolean, onUnitClick?: (unit: Unit) => void }) {
+function CanvasContent({
+    units,
+    ghost,
+    activeId,
+    readOnly,
+    selectedUnitId,
+    onUnitClick,
+    onUnitMessageClick,
+    currentUserUnitId,
+    currentUserInitials,
+    currentUserAvatarUrl
+}: {
+    units: Unit[];
+    ghost: GhostState | null;
+    activeId: string | null;
+    readOnly: boolean;
+    selectedUnitId: string | null;
+    onUnitClick?: (unitId: string) => void;
+    onUnitMessageClick?: (unitId: string) => void;
+    currentUserUnitId?: string | null;
+    currentUserInitials?: string;
+    currentUserAvatarUrl?: string | null;
+}) {
     // ... (inside DraggableUnit function later in file)
     const { setNodeRef } = useDroppable({ id: 'canvas-droppable' });
     const GRID_ROWS = 10;
@@ -399,8 +435,8 @@ function CanvasContent({ units, ghost, activeId, readOnly, onUnitClick }: { unit
     return (
         <div ref={setNodeRef} style={{ width: '100%', height: '100%', position: 'relative' }}>
 
-            {/* GHOST PREVIEW (Hidden in ReadOnly) */}
-            {ghost && !readOnly && (
+            {/* GHOST PREVIEW */}
+            {ghost && (
                 <div style={{
                     position: 'absolute',
                     left: ghost.x * GRID_CELL_SIZE,
@@ -425,7 +461,17 @@ function CanvasContent({ units, ghost, activeId, readOnly, onUnitClick }: { unit
             {/* UNITS */}
             {units.map(unit => (
                 <div key={unit.id} style={{ opacity: unit.id === activeId ? 0.3 : 1 }}> {/* Fade out original when dragging */}
-                    <DraggableUnit unit={unit} totalRows={GRID_ROWS} readOnly={readOnly} onClick={onUnitClick ? () => onUnitClick(unit) : undefined} />
+                    <DraggableUnit
+                        unit={unit}
+                        totalRows={GRID_ROWS}
+                        readOnly={readOnly}
+                        isSelected={selectedUnitId === unit.id}
+                        onUnitClick={onUnitClick}
+                        onUnitMessageClick={onUnitMessageClick}
+                        currentUserUnitId={currentUserUnitId}
+                        currentUserInitials={currentUserInitials}
+                        currentUserAvatarUrl={currentUserAvatarUrl}
+                    />
                 </div>
             ))}
         </div>
@@ -486,11 +532,30 @@ function SidebarUnit({ type, label, icon }: { type: UnitType, label: string, ico
 }
 
 // ... (DraggableUnit props remain)
-function DraggableUnit({ unit, totalRows, readOnly, onClick }: { unit: Unit, totalRows: number, readOnly: boolean, onClick?: () => void }) {
+function DraggableUnit({
+    unit,
+    totalRows,
+    readOnly,
+    isSelected,
+    onUnitClick,
+    onUnitMessageClick,
+    currentUserUnitId,
+    currentUserInitials,
+    currentUserAvatarUrl
+}: {
+    unit: Unit;
+    totalRows: number;
+    readOnly: boolean;
+    isSelected: boolean;
+    onUnitClick?: (unitId: string) => void;
+    onUnitMessageClick?: (unitId: string) => void;
+    currentUserUnitId?: string | null;
+    currentUserInitials?: string;
+    currentUserAvatarUrl?: string | null;
+}) {
     const { attributes, listeners, setNodeRef } = useDraggable({
         id: unit.id,
-        data: { type: unit.type, isPreset: false },
-        disabled: readOnly // Disable dragging in read-only mode
+        data: { type: unit.type, isPreset: false }
     });
 
     // Pixel math
@@ -501,7 +566,7 @@ function DraggableUnit({ unit, totalRows, readOnly, onClick }: { unit: Unit, tot
     // Styles
     const isStairs = unit.type === 'stairs';
     const isOccupied = unit.status === 'occupied';
-    const _isVacant = unit.status === 'vacant';
+    const isVacant = unit.status === 'vacant';
 
     // Theme Colors
     const bgGradient = isStairs
@@ -518,16 +583,62 @@ function DraggableUnit({ unit, totalRows, readOnly, onClick }: { unit: Unit, tot
         }}></div>
     ) : null;
 
+    const [isHovered, setIsHovered] = useState(false);
+    const showTooltip = readOnly && isHovered;
+    const tooltipTitle = unit.id === currentUserUnitId
+        ? 'This is where you are'
+        : unit.tenantName && unit.tenantName !== 'Resident'
+            ? unit.tenantName
+            : isVacant
+                ? 'Vacant'
+                : unit.tenantName || 'Resident';
+    const tooltipSubtitle = unit.id === currentUserUnitId
+        ? 'Your unit'
+        : unit.tenantName && unit.tenantName !== 'Resident'
+            ? 'Resident'
+            : isVacant
+                ? 'Available'
+                : 'Resident';
+    const canMessage = readOnly
+        && unit.id !== currentUserUnitId
+        && unit.type !== 'stairs'
+        && !isVacant
+        && unit.tenantName
+        && unit.tenantName !== 'Resident'
+        && !unit.tenantIsPrivate;
+    const showAvatar = Boolean(!unit.tenantIsPrivate && unit.tenantName && unit.tenantName !== 'Resident');
+    const tooltipInitials = (unit.tenantName || '')
+        .split(' ')
+        .filter(Boolean)
+        .slice(0, 2)
+        .map((part) => part[0].toUpperCase())
+        .join('');
+
     return (
-        <div ref={setNodeRef} style={{
-            position: 'absolute', top: pixelY, left: pixelX, width, height: UNIT_HEIGHT,
-            zIndex: 10, cursor: readOnly ? (onClick ? 'pointer' : 'default') : 'grab', boxSizing: 'border-box',
-        }} {...listeners} {...attributes} onClick={(e) => {
-            if (readOnly && onClick) {
-                e.stopPropagation(); // Prevent drag/other events if needed
-                onClick();
-            }
-        }}>
+        <div
+            ref={setNodeRef}
+            style={{
+                position: 'absolute',
+                top: pixelY,
+                left: pixelX,
+                width,
+                height: UNIT_HEIGHT,
+                zIndex: isHovered ? 50 : 10,
+                cursor: readOnly ? 'pointer' : 'grab',
+                boxSizing: 'border-box',
+                outline: isSelected ? '2px solid #60a5fa' : 'none',
+                outlineOffset: 2
+            }}
+            onClick={() => {
+                if (unit.type !== 'stairs') {
+                    onUnitClick?.(unit.id);
+                }
+            }}
+            onPointerEnter={() => setIsHovered(true)}
+            onPointerLeave={() => setIsHovered(false)}
+            {...(readOnly ? {} : listeners)}
+            {...(readOnly ? {} : attributes)}
+        >
 
             {/* Main Container */}
             <div style={{
@@ -535,6 +646,39 @@ function DraggableUnit({ unit, totalRows, readOnly, onClick }: { unit: Unit, tot
                 background: '#1e293b',
                 position: 'relative', overflow: 'visible' // visible for popouts if needed
             }}>
+
+                    {readOnly && unit.id === currentUserUnitId && (
+                        <div style={{
+                            position: 'absolute',
+                            top: '50%',
+                            left: '50%',
+                            transform: 'translate(-50%, -50%)',
+                            width: 42,
+                            height: 42,
+                            borderRadius: '50%',
+                            background: '#6366f1',
+                            color: 'white',
+                            display: 'flex',
+                            alignItems: 'center',
+                            justifyContent: 'center',
+                            fontSize: '0.8rem',
+                            fontWeight: 700,
+                            border: '2px solid rgba(15, 23, 42, 0.9)',
+                            boxShadow: '0 6px 16px rgba(15, 23, 42, 0.45)',
+                            overflow: 'hidden',
+                            zIndex: 40
+                        }}>
+                            {currentUserAvatarUrl ? (
+                                <img
+                                    src={currentUserAvatarUrl}
+                                    alt="Your profile"
+                                    style={{ width: '100%', height: '100%', objectFit: 'cover' }}
+                                />
+                            ) : (
+                                <span>{currentUserInitials || 'ME'}</span>
+                            )}
+                        </div>
+                    )}
 
                 {/* Floor Slab (Structure) */}
                 <div style={{
@@ -585,28 +729,16 @@ function DraggableUnit({ unit, totalRows, readOnly, onClick }: { unit: Unit, tot
                     {isStairs && <div style={{ position: 'absolute', inset: 0, opacity: 0.3, backgroundImage: 'repeating-linear-gradient(45deg, transparent, transparent 10px, #000 10px, #000 20px)' }}></div>}
 
                     {/* Top Label */}
-                    {/* Top Label & Unit Number */}
-                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', width: '100%', zIndex: 5 }}>
-                        <div style={{
-                            background: 'rgba(0,0,0,0.5)', padding: '2px 6px', borderRadius: 4,
-                            fontSize: '0.6rem', color: '#94a3b8', fontWeight: 600, border: '1px solid rgba(255,255,255,0.1)'
-                        }}>
-                            {unitConfig[unit.type].label.toUpperCase()}
-                        </div>
-                        {unit.unitNumber && (
-                            <div style={{
-                                background: 'rgba(59, 130, 246, 0.9)', padding: '2px 6px', borderRadius: 4,
-                                fontSize: '0.75rem', color: 'white', fontWeight: 700,
-                                boxShadow: '0 2px 5px rgba(0,0,0,0.2)',
-                                border: '1px solid rgba(96, 165, 250, 0.5)'
-                            }}>
-                                {unit.unitNumber}
-                            </div>
-                        )}
+                    <div style={{
+                        alignSelf: 'flex-start',
+                        background: 'rgba(0,0,0,0.5)', padding: '2px 6px', borderRadius: 4,
+                        fontSize: '0.6rem', color: '#94a3b8', fontWeight: 600, border: '1px solid rgba(255,255,255,0.1)'
+                    }}>
+                        {unitConfig[unit.type].label.toUpperCase()}
                     </div>
 
-                    {/* Tenant / Status / Maintenance - SIMPLIFIED FOR READ ONLY */}
-                    {!isStairs && !readOnly && (
+                    {/* Tenant / Status / Maintenance */}
+                    {!isStairs && (
                         <div style={{ display: 'flex', alignItems: 'center', gap: 6, zIndex: 10 }}>
                             {/* Maintenance Overlay (Full Box) */}
                             {unit.status === 'maintenance' && (
@@ -659,37 +791,126 @@ function DraggableUnit({ unit, totalRows, readOnly, onClick }: { unit: Unit, tot
                         </div>
                     )}
 
-                    {/* READ ONLY STATUS (Public View) */}
-                    {!isStairs && readOnly && (
-                        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 10, width: '100%', height: '100%' }}>
-                            {unit.status === 'occupied' && (
-                                <div style={{
-                                    background: 'rgba(0,0,0,0.4)',
-                                    padding: '4px 8px',
-                                    borderRadius: 4,
-                                    color: '#cbd5e1',
-                                    fontSize: '0.75rem',
-                                    fontWeight: 600,
-                                    display: 'flex', alignItems: 'center', gap: 4
-                                }}>
-                                    <User size={12} />
-                                    Occupied
-                                </div>
-                            )}
-
-                            {unit.status === 'vacant' && (
-                                <div style={{
-                                    background: 'rgba(34, 197, 94, 0.2)',
-                                    border: '1px solid #22c55e',
-                                    padding: '4px 8px',
-                                    borderRadius: 4,
-                                    color: '#4ade80',
-                                    fontSize: '0.75rem',
-                                    fontWeight: 700
-                                }}>
-                                    AVAILABLE
-                                </div>
-                            )}
+                    {showTooltip && (
+                        <div style={{
+                            position: 'absolute',
+                            bottom: '100%',
+                            left: '50%',
+                            transform: 'translate(-50%, -12px)',
+                            background: '#f8fafc',
+                            color: '#0f172a',
+                            borderRadius: 16,
+                            border: '1px solid rgba(148, 163, 184, 0.35)',
+                            fontSize: '0.75rem',
+                            minWidth: 210,
+                            zIndex: 9999,
+                            boxShadow: '0 18px 35px rgba(15, 23, 42, 0.3)',
+                            pointerEvents: 'auto',
+                            overflow: 'hidden'
+                        }}>
+                            <div style={{
+                                height: 46,
+                                background: 'linear-gradient(135deg, #16a34a 0%, #0f766e 100%)'
+                            }} />
+                            <div style={{
+                                padding: '0 0.9rem 0.9rem',
+                                marginTop: -18,
+                                textAlign: 'center'
+                            }}>
+                                {showAvatar && (
+                                    unit.tenantAvatarUrl ? (
+                                        <div style={{
+                                            width: 48,
+                                            height: 48,
+                                            borderRadius: '50%',
+                                            overflow: 'hidden',
+                                            border: '3px solid #f8fafc',
+                                            boxShadow: '0 8px 16px rgba(15, 23, 42, 0.2)',
+                                            margin: '0 auto 0.4rem'
+                                        }}>
+                                            <img
+                                                src={unit.tenantAvatarUrl}
+                                                alt={unit.tenantName || 'Resident'}
+                                                style={{
+                                                    width: '100%',
+                                                    height: '100%',
+                                                    objectFit: 'cover'
+                                                }}
+                                            />
+                                        </div>
+                                    ) : (
+                                        <div style={{
+                                            width: 48,
+                                            height: 48,
+                                            borderRadius: '50%',
+                                            background: '#e0e7ff',
+                                            color: '#4338ca',
+                                            display: 'flex',
+                                            alignItems: 'center',
+                                            justifyContent: 'center',
+                                            fontWeight: 700,
+                                            fontSize: '0.75rem',
+                                            border: '3px solid #f8fafc',
+                                            boxShadow: '0 8px 16px rgba(15, 23, 42, 0.2)',
+                                            margin: '0 auto 0.4rem'
+                                        }}>
+                                            {tooltipInitials || 'R'}
+                                        </div>
+                                    )
+                                )}
+                                <div style={{ fontWeight: 700, fontSize: '0.85rem' }}>{tooltipTitle}</div>
+                                <div style={{ color: '#64748b', fontSize: '0.7rem' }}>{tooltipSubtitle}</div>
+                            </div>
+                            <div style={{
+                                borderTop: '1px solid rgba(148, 163, 184, 0.2)',
+                                padding: '0.6rem 0.8rem 0.75rem',
+                                display: 'grid',
+                                gridTemplateColumns: canMessage ? '1fr 1fr' : '1fr',
+                                gap: 8
+                            }}>
+                                <button
+                                    type="button"
+                                    onClick={(event) => {
+                                        event.stopPropagation();
+                                        if (unit.type !== 'stairs') {
+                                            onUnitClick?.(unit.id);
+                                        }
+                                    }}
+                                    style={{
+                                        background: '#ffffff',
+                                        color: '#0f172a',
+                                        border: '1px solid rgba(148, 163, 184, 0.6)',
+                                        borderRadius: 999,
+                                        padding: '0.35rem 0.5rem',
+                                        fontSize: '0.65rem',
+                                        fontWeight: 700,
+                                        cursor: 'pointer'
+                                    }}
+                                >
+                                    View
+                                </button>
+                                {canMessage && (
+                                    <button
+                                        type="button"
+                                        onClick={(event) => {
+                                            event.stopPropagation();
+                                            onUnitMessageClick?.(unit.id);
+                                        }}
+                                        style={{
+                                            background: '#16a34a',
+                                            color: 'white',
+                                            border: 'none',
+                                            borderRadius: 999,
+                                            padding: '0.35rem 0.5rem',
+                                            fontSize: '0.65rem',
+                                            fontWeight: 700,
+                                            cursor: 'pointer'
+                                        }}
+                                    >
+                                        Message
+                                    </button>
+                                )}
+                            </div>
                         </div>
                     )}
                 </div>

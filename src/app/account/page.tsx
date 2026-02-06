@@ -37,6 +37,7 @@ type UserProfile = {
     phone: string | null;
     role: "tenant" | "landlord" | "admin";
     created_at: string;
+    is_name_private?: boolean | null;
 };
 
 type LandlordApplication = {
@@ -57,6 +58,8 @@ export default function AccountPage() {
     const [application, setApplication] = useState<LandlordApplication | null>(null);
     const [isLoading, setIsLoading] = useState(true);
     const [showApplicationForm, setShowApplicationForm] = useState(false);
+    const [isSavingPrivacy, setIsSavingPrivacy] = useState(false);
+    const [privacyError, setPrivacyError] = useState<string | null>(null);
     const supabase = createClient();
 
     const fetchData = useCallback(async () => {
@@ -88,6 +91,7 @@ export default function AccountPage() {
                 phone: null,
                 role: "tenant",
                 created_at: user.created_at,
+                is_name_private: false,
             });
         }
 
@@ -138,6 +142,26 @@ export default function AccountPage() {
         visible: { opacity: 1, y: 0, transition: { duration: 0.5 } }
     };
 
+    const handlePrivacyToggle = async (nextValue: boolean) => {
+        if (!profile) return;
+        setIsSavingPrivacy(true);
+        setPrivacyError(null);
+
+        const { error } = await supabase
+            .from("profiles")
+            .update({ is_name_private: nextValue })
+            .eq("id", profile.id);
+
+        if (error) {
+            console.error("Failed to update privacy setting:", error);
+            setPrivacyError("Unable to update privacy setting. Please try again.");
+        } else {
+            setProfile({ ...profile, is_name_private: nextValue });
+        }
+
+        setIsSavingPrivacy(false);
+    };
+
     return (
         <main className={styles.page}>
             <header className={styles.topBar}>
@@ -158,7 +182,19 @@ export default function AccountPage() {
             </header>
 
             <div className={styles.shell}>
-
+                <motion.header
+                    className={styles.header}
+                    initial={{ opacity: 0, y: -20 }}
+                    animate={{ opacity: 1, y: 0 }}
+                    transition={{ duration: 0.6 }}
+                >
+                    <div>
+                        <h1 className={styles.headerTitle}>Profile Center</h1>
+                        <p className={styles.headerSubtitle}>
+                            Manage your personal information, privacy settings, and workspace preferences from one central hub.
+                        </p>
+                    </div>
+                </motion.header>
 
                 <motion.div
                     className={styles.contentGrid}
@@ -289,6 +325,33 @@ export default function AccountPage() {
                                 </>
                             )}
                         </motion.section>
+
+                        {profile.role === "tenant" && (
+                            <motion.section variants={itemVariants}>
+                                <div className={styles.sectionTitle}>
+                                    <Shield size={20} />
+                                    <span>Privacy</span>
+                                </div>
+                                <div className={styles.privacyCard}>
+                                    <div className={styles.privacyRow}>
+                                        <div>
+                                            <h3>Show my name on the Unit Map</h3>
+                                            <p>When disabled, neighbors see "Resident" but can still message you.</p>
+                                        </div>
+                                        <label className={styles.switch}>
+                                            <input
+                                                type="checkbox"
+                                                checked={!profile.is_name_private}
+                                                onChange={(e) => handlePrivacyToggle(!e.target.checked)}
+                                                disabled={isSavingPrivacy}
+                                            />
+                                            <span className={styles.slider} />
+                                        </label>
+                                    </div>
+                                    {privacyError && <p className={styles.privacyError}>{privacyError}</p>}
+                                </div>
+                            </motion.section>
+                        )}
 
                         {/* Quick Actions Grid */}
                         <motion.section variants={itemVariants}>

@@ -517,6 +517,20 @@ export default function TenantDashboard() {
                 {/* Right Column */}
                 <div className={styles.column}>
 
+                    {/* Unit Map */}
+                    <div className={styles.card} style={{ marginBottom: '1.5rem' }}>
+                        <div className={styles.cardHeader}>
+                            <h2 className={styles.cardTitle}>Unit Map</h2>
+                            <MapPin size={16} className={styles.unitMapIcon} />
+                        </div>
+                        <p className={styles.unitMapDescription}>
+                            See your building layout, find neighbors, and start a conversation.
+                        </p>
+                        <button className={styles.primaryBtn} onClick={() => router.push('/tenant/unit-map')}>
+                            Open Unit Map
+                        </button>
+                    </div>
+
                     {/* Quick Actions */}
                     <div className={styles.card} style={{ marginBottom: '1.5rem' }}>
                         <div className={styles.cardHeader}>
