@@ -298,3 +298,18 @@
     border: 1px solid var(--border);
     overflow: hidden;
 }
+
+.embedContainer {
+    height: 100%;
+    width: 100%;
+    padding: 0;
+}
+
+.embedBuilder {
+    height: 100%;
+    min-height: 360px;
+    background: white;
+    border-radius: 16px;
+    border: 1px solid var(--border);
+    overflow: hidden;
+}

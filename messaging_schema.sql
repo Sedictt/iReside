@@ -2,6 +2,17 @@
 -- MESSAGING SYSTEM SCHEMA
 -- =====================================================
 
+-- Idempotent upgrades for existing databases
+ALTER TABLE IF EXISTS public.messages
+    ADD COLUMN IF NOT EXISTS delivered_at TIMESTAMP WITH TIME ZONE,
+    ADD COLUMN IF NOT EXISTS seen_at TIMESTAMP WITH TIME ZONE;
+
+DROP POLICY IF EXISTS "Users can view their own conversations" ON public.conversations;
+DROP POLICY IF EXISTS "Users can create conversations" ON public.conversations;
+DROP POLICY IF EXISTS "Users can view messages in their conversations" ON public.messages;
+DROP POLICY IF EXISTS "Users can send messages" ON public.messages;
+DROP POLICY IF EXISTS "Users can update message receipts" ON public.messages;
+
 -- 1. Conversations Table
 -- Represents a thread between two users (generic)
 CREATE TABLE IF NOT EXISTS public.conversations (
@@ -30,6 +41,8 @@ CREATE TABLE IF NOT EXISTS public.messages (
     content TEXT NOT NULL,
     
     is_read BOOLEAN DEFAULT false,
+    delivered_at TIMESTAMP WITH TIME ZONE,
+    seen_at TIMESTAMP WITH TIME ZONE,
     
     created_at TIMESTAMP WITH TIME ZONE DEFAULT TIMEZONE('utc'::text, NOW())
 );
@@ -73,6 +86,23 @@ CREATE POLICY "Users can send messages" ON public.messages
             AND (c.participant1_id = auth.uid() OR c.participant2_id = auth.uid())
         )
         AND sender_id = auth.uid()
+    );
+
+-- Users can update message receipts in their conversations
+CREATE POLICY "Users can update message receipts" ON public.messages
+    FOR UPDATE USING (
+        EXISTS (
+            SELECT 1 FROM public.conversations c
+            WHERE c.id = messages.conversation_id
+            AND (c.participant1_id = auth.uid() OR c.participant2_id = auth.uid())
+        )
+    )
+    WITH CHECK (
+        EXISTS (
+            SELECT 1 FROM public.conversations c
+            WHERE c.id = messages.conversation_id
+            AND (c.participant1_id = auth.uid() OR c.participant2_id = auth.uid())
+        )
     );
 
 -- 6. Real-time updates (Optional but recommended)

@@ -45,6 +45,25 @@
     align-items: start;
 }
 
+.embedPage {
+    height: 100%;
+    width: 100%;
+    padding: 0;
+    margin: 0;
+    display: flex;
+    flex-direction: column;
+    gap: 0.75rem;
+}
+
+.embedBuilder {
+    flex: 1;
+    min-height: 360px;
+    border-radius: 0.75rem;
+    overflow: hidden;
+    border: 1px solid #e2e8f0;
+    background: white;
+}
+
 @media (max-width: 1024px) {
     .mapShell {
         grid-template-columns: 1fr;

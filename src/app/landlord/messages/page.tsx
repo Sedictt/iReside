@@ -1,10 +1,10 @@
 "use client";
 
-import { useEffect, useState, useRef, Suspense } from 'react';
+import { useEffect, useState, useRef, Suspense, useMemo, useCallback } from 'react';
 import { useSearchParams, useRouter } from 'next/navigation';
 import { createClient } from '@/utils/supabase/client';
 import styles from './page.module.css';
-import { MessageSquare, Search, Send, ArrowLeft, MoreVertical, Phone, Mail } from 'lucide-react';
+import { MessageSquare, Search, Send, ArrowLeft, MoreVertical, Phone, Mail, Loader2, Check, CheckCheck, Eye, MapPin, User2, X } from 'lucide-react';
 
 type Profile = {
     id: string;
@@ -31,6 +31,15 @@ type Message = {
     content: string;
     created_at: string;
     is_read: boolean;
+    delivered_at: string | null;
+    seen_at: string | null;
+    optimistic?: boolean;
+};
+
+type UnitInfo = {
+    id: string;
+    unit_number: string | null;
+    property: { id: string; name: string; address: string } | null;
 };
 
 function MessagesContent() {
@@ -42,11 +51,25 @@ function MessagesContent() {
     const [msgLoading, setMsgLoading] = useState(false);
     const [newMessage, setNewMessage] = useState('');
     const [searchTerm, setSearchTerm] = useState('');
+    const [participantUnit, setParticipantUnit] = useState<UnitInfo | null>(null);
+    const [isMenuOpen, setIsMenuOpen] = useState(false);
+    const [isUnitModalOpen, setIsUnitModalOpen] = useState(false);
+    const [isUnitMapOpen, setIsUnitMapOpen] = useState(false);
 
     const messagesEndRef = useRef<HTMLDivElement>(null);
+    const messageListRef = useRef<HTMLDivElement>(null);
+    const seenObserverRef = useRef<IntersectionObserver | null>(null);
+    const menuRef = useRef<HTMLDivElement>(null);
     const searchParams = useSearchParams();
     const router = useRouter();
-    const supabase = createClient();
+    const supabase = useMemo(() => createClient(), []);
+
+    const activeConversation = conversations.find(c => c.id === selectedConvId);
+    const participantName = activeConversation?.other_participant?.full_name || 'Unknown';
+    const participantRole = activeConversation?.other_participant?.role || 'tenant';
+    const roleLabel = participantRole === 'landlord' ? 'Landlord' : participantRole === 'admin' ? 'Admin' : 'Tenant';
+    const unitLabel = participantUnit?.unit_number ? `Unit ${participantUnit.unit_number}` : null;
+    const propertyLabel = participantUnit?.property?.name || participantUnit?.property?.address || null;
 
     // Initialize
     useEffect(() => {
@@ -73,27 +96,99 @@ function MessagesContent() {
         }
     }, [searchParams, conversations]);
 
+    const markMessagesDelivered = useCallback(async (items: Message[]) => {
+        if (!currentUser) return;
+        const ids = items
+            .filter(message => !message.optimistic)
+            .filter(message => message.sender_id !== currentUser.id && !message.delivered_at)
+            .map(message => message.id);
+
+        if (ids.length === 0) return;
+        const now = new Date().toISOString();
+
+        const { data, error } = await supabase
+            .from('messages')
+            .update({ delivered_at: now })
+            .in('id', ids)
+            .is('delivered_at', null)
+            .select('id, delivered_at');
+
+        if (error) {
+            console.error('Failed to mark messages delivered:', error);
+            return;
+        }
+
+        if (data && data.length > 0) {
+            setMessages(prev => prev.map(message => {
+                const updated = data.find(row => row.id === message.id);
+                return updated ? { ...message, ...updated } : message;
+            }));
+        }
+    }, [currentUser, supabase]);
+
+    const markMessagesSeen = useCallback(async (items: Message[]) => {
+        if (!currentUser) return;
+        const ids = items
+            .filter(message => !message.optimistic)
+            .filter(message => message.sender_id !== currentUser.id && !message.seen_at)
+            .map(message => message.id);
+
+        if (ids.length === 0) return;
+        const now = new Date().toISOString();
+
+        const { data, error } = await supabase
+            .from('messages')
+            .update({ seen_at: now, delivered_at: now, is_read: true })
+            .in('id', ids)
+            .is('seen_at', null)
+            .select('id, delivered_at, seen_at, is_read');
+
+        if (error) {
+            console.error('Failed to mark messages seen:', error);
+            return;
+        }
+
+        if (data && data.length > 0) {
+            setMessages(prev => prev.map(message => {
+                const updated = data.find(row => row.id === message.id);
+                return updated ? { ...message, ...updated } : message;
+            }));
+        }
+    }, [currentUser, supabase]);
+
     // Fetch messages when conversation selected
     useEffect(() => {
         if (!selectedConvId) return;
+        let isActive = true;
 
-        const fetchMessages = async () => {
-            setMsgLoading(true);
+        const fetchMessages = async (silent = false) => {
+            if (!silent) {
+                setMsgLoading(true);
+            }
+
             const { data, error } = await supabase
                 .from('messages')
                 .select('*')
                 .eq('conversation_id', selectedConvId)
                 .order('created_at', { ascending: true });
 
-            if (!error && data) {
-                setMessages(data);
-                // Mark as read (optional, can be done later)
+            if (!error && data && isActive) {
+                setMessages(prev => {
+                    const optimistic = prev.filter(message => message.optimistic);
+                    const mergedIds = new Set(data.map(message => message.id));
+                    const combined = [...data, ...optimistic.filter(message => !mergedIds.has(message.id))];
+                    return combined.sort((a, b) => new Date(a.created_at).getTime() - new Date(b.created_at).getTime());
+                });
+                scrollToBottom();
+                void markMessagesDelivered(data);
             }
-            setMsgLoading(false);
-            scrollToBottom();
+
+            if (!silent && isActive) {
+                setMsgLoading(false);
+            }
         };
 
-        fetchMessages();
+        void fetchMessages();
 
         // Subscribe to real-time messages
         const channel = supabase
@@ -102,16 +197,148 @@ function MessagesContent() {
                 { event: 'INSERT', schema: 'public', table: 'messages', filter: `conversation_id=eq.${selectedConvId}` },
                 (payload) => {
                     const newMsg = payload.new as Message;
-                    setMessages(prev => [...prev, newMsg]);
+                    setMessages(prev => {
+                        if (prev.some(msg => msg.id === newMsg.id)) {
+                            return prev;
+                        }
+
+                        const optimisticIndex = prev.findIndex(msg =>
+                            msg.optimistic &&
+                            msg.sender_id === newMsg.sender_id &&
+                            msg.content === newMsg.content
+                        );
+
+                        if (optimisticIndex >= 0) {
+                            const updated = [...prev];
+                            updated[optimisticIndex] = newMsg;
+                            return updated;
+                        }
+
+                        return [...prev, newMsg];
+                    });
                     scrollToBottom();
+
+                    if (currentUser && newMsg.sender_id !== currentUser.id) {
+                        void markMessagesDelivered([newMsg]);
+                    }
+                }
+            )
+            .on('postgres_changes',
+                { event: 'UPDATE', schema: 'public', table: 'messages', filter: `conversation_id=eq.${selectedConvId}` },
+                (payload) => {
+                    const updatedMsg = payload.new as Message;
+                    setMessages(prev => prev.map(message => message.id === updatedMsg.id ? updatedMsg : message));
                 }
             )
             .subscribe();
 
+        const intervalId = window.setInterval(() => {
+            void fetchMessages(true);
+        }, 5000);
+
         return () => {
+            isActive = false;
+            window.clearInterval(intervalId);
             supabase.removeChannel(channel);
         };
-    }, [selectedConvId]);
+    }, [selectedConvId, supabase, currentUser, markMessagesDelivered]);
+
+    useEffect(() => {
+        if (!selectedConvId || !activeConversation?.other_participant?.id) {
+            setParticipantUnit(null);
+            return;
+        }
+
+        if (activeConversation.other_participant.role !== 'tenant') {
+            setParticipantUnit(null);
+            return;
+        }
+
+        let isActive = true;
+
+        const fetchParticipantUnit = async () => {
+            const { data, error } = await supabase
+                .from('leases')
+                .select(`
+                    unit:units (
+                        id,
+                        unit_number,
+                        property:properties (
+                            id,
+                            name,
+                            address
+                        )
+                    )
+                `)
+                .eq('tenant_id', activeConversation.other_participant?.id)
+                .eq('status', 'active')
+                .order('created_at', { ascending: false })
+                .limit(1);
+
+            if (!isActive) return;
+
+            if (error || !data || data.length === 0) {
+                setParticipantUnit(null);
+                return;
+            }
+
+            const unit = (data[0] as { unit?: UnitInfo | null }).unit || null;
+            setParticipantUnit(unit);
+        };
+
+        void fetchParticipantUnit();
+
+        return () => {
+            isActive = false;
+        };
+    }, [selectedConvId, activeConversation?.other_participant?.id, activeConversation?.other_participant?.role, supabase]);
+
+    useEffect(() => {
+        if (!selectedConvId || !currentUser || !messageListRef.current) return;
+
+        if (seenObserverRef.current) {
+            seenObserverRef.current.disconnect();
+        }
+
+        const observer = new IntersectionObserver(
+            (entries) => {
+                const visibleIds = entries
+                    .filter(entry => entry.isIntersecting)
+                    .map(entry => entry.target.getAttribute('data-message-id'))
+                    .filter((id): id is string => Boolean(id));
+
+                if (visibleIds.length === 0) return;
+
+                const visibleMessages = messages.filter(message => visibleIds.includes(message.id));
+                void markMessagesSeen(visibleMessages);
+            },
+            { root: messageListRef.current, threshold: 0.6 }
+        );
+
+        seenObserverRef.current = observer;
+
+        const messageNodes = messageListRef.current.querySelectorAll('[data-message-id]');
+        messageNodes.forEach(node => observer.observe(node));
+
+        return () => {
+            observer.disconnect();
+        };
+    }, [selectedConvId, currentUser, messages, markMessagesSeen]);
+
+    useEffect(() => {
+        if (!isMenuOpen) return;
+
+        const handleClickOutside = (event: MouseEvent) => {
+            if (menuRef.current && !menuRef.current.contains(event.target as Node)) {
+                setIsMenuOpen(false);
+            }
+        };
+
+        document.addEventListener('mousedown', handleClickOutside);
+        return () => {
+            document.removeEventListener('mousedown', handleClickOutside);
+        };
+    }, [isMenuOpen]);
 
     const scrollToBottom = () => {
         setTimeout(() => {
@@ -173,23 +400,40 @@ function MessagesContent() {
         if (!newMessage.trim() || !selectedConvId || !currentUser) return;
 
         const msgContent = newMessage.trim();
+        const tempId = `temp-${Date.now()}`;
+        const optimisticMessage: Message = {
+            id: tempId,
+            conversation_id: selectedConvId,
+            sender_id: currentUser.id,
+            content: msgContent,
+            created_at: new Date().toISOString(),
+            is_read: false,
+            delivered_at: null,
+            seen_at: null,
+            optimistic: true
+        };
+
         setNewMessage(''); // Optimistic clear
+        setMessages(prev => [...prev, optimisticMessage]);
+        scrollToBottom();
 
-        // Optimistic update
-        // (Skipping for simplicity, relying on realtime)
-
-        const { error } = await supabase
+        const { data, error } = await supabase
             .from('messages')
             .insert({
                 conversation_id: selectedConvId,
                 sender_id: currentUser.id,
                 content: msgContent
-            });
+            })
+            .select('*')
+            .single();
 
         if (error) {
             console.error('Error sending message:', error);
             alert('Failed to send message');
-        } else {
+            setMessages(prev => prev.filter(message => message.id !== tempId));
+            setNewMessage(msgContent);
+        } else if (data) {
+            setMessages(prev => prev.map(message => message.id === tempId ? data : message));
             // Update conversation timestamp
             await supabase
                 .from('conversations')
@@ -198,9 +442,29 @@ function MessagesContent() {
         }
     };
 
-    // Derived state
-    const activeConversation = conversations.find(c => c.id === selectedConvId);
+    const getMessageStatus = (message: Message) => {
+        if (message.optimistic) return 'sending';
+        if (message.seen_at) return 'seen';
+        if (message.delivered_at) return 'delivered';
+        return 'sent';
+    };
 
+    const renderStatusIcon = (status: string) => {
+        switch (status) {
+            case 'sending':
+                return <Loader2 size={12} className={styles.statusIcon} />;
+            case 'sent':
+                return <Check size={12} className={styles.statusIcon} />;
+            case 'delivered':
+                return <CheckCheck size={12} className={styles.statusIcon} />;
+            case 'seen':
+                return <Eye size={12} className={styles.statusIcon} />;
+            default:
+                return null;
+        }
+    };
+
+    // Derived state
     // Filtered list
     const filteredConversations = conversations.filter(c =>
         c.other_participant?.full_name?.toLowerCase().includes(searchTerm.toLowerCase()) ||
@@ -212,9 +476,10 @@ function MessagesContent() {
     }
 
     return (
-        <div className={styles.container}>
-            {/* Sidebar */}
-            <div className={`${styles.sidebar} ${selectedConvId ? styles.hidden : ''} md:flex`}>
+        <>
+            <div className={styles.container}>
+                {/* Sidebar */}
+                <div className={`${styles.sidebar} ${selectedConvId ? styles.hidden : ''} md:flex`}>
                 <div className={styles.sidebarHeader}>
                     <h1 className={styles.title}>Messages</h1>
                     <div className={styles.searchBar}>
@@ -285,20 +550,84 @@ function MessagesContent() {
                                 >
                                     <ArrowLeft size={24} />
                                 </button>
-                                <div>
-                                    <div className={styles.headerName}>{activeConversation.other_participant?.full_name}</div>
-                                    <div className={styles.headerDetail}>
-                                        {activeConversation.listing?.title || 'General Inquiry'}
+                                <div className={styles.headerAvatar}>
+                                    {activeConversation.other_participant?.avatar_url ? (
+                                        <img src={activeConversation.other_participant.avatar_url} alt={participantName} />
+                                    ) : (
+                                        <span>{participantName.charAt(0).toUpperCase()}</span>
+                                    )}
+                                </div>
+                                <div className={styles.headerText}>
+                                    <div className={styles.headerNameRow}>
+                                        <span className={styles.headerName}>{participantName}</span>
+                                        <span className={styles.headerRole}>{roleLabel}</span>
+                                    </div>
+                                    <div className={styles.headerMeta}>
+                                        <span className={styles.headerDetail}>
+                                            {activeConversation.listing?.title || 'General Inquiry'}
+                                        </span>
+                                        {unitLabel ? (
+                                            <span className={styles.unitBadge}>
+                                                {unitLabel}{propertyLabel ? ` • ${propertyLabel}` : ''}
+                                            </span>
+                                        ) : (
+                                            <span className={styles.unitBadgeMuted}>No unit on file</span>
+                                        )}
                                     </div>
                                 </div>
                             </div>
-                            {/* Actions */}
-                            <div style={{ display: 'flex', gap: '0.5rem' }}>
-                                {/* Placeholder actions */}
+                            <div className={styles.headerActions} ref={menuRef}>
+                                <button
+                                    className={styles.iconButton}
+                                    onClick={() => setIsUnitMapOpen(true)}
+                                    title="Open unit map"
+                                >
+                                    <MapPin size={18} />
+                                </button>
+                                <button
+                                    className={styles.iconButton}
+                                    onClick={() => setIsMenuOpen(prev => !prev)}
+                                    title="More"
+                                >
+                                    <MoreVertical size={18} />
+                                </button>
+                                {isMenuOpen ? (
+                                    <div className={styles.menu}>
+                                        <button
+                                            className={styles.menuItem}
+                                            onClick={() => {
+                                                setIsMenuOpen(false);
+                                                setIsUnitModalOpen(true);
+                                            }}
+                                            disabled={!participantUnit}
+                                        >
+                                            View unit details
+                                        </button>
+                                        <button
+                                            className={styles.menuItem}
+                                            onClick={() => {
+                                                setIsMenuOpen(false);
+                                                setIsUnitMapOpen(true);
+                                            }}
+                                        >
+                                            Open unit map
+                                        </button>
+                                        <button
+                                            className={styles.menuItem}
+                                            onClick={() => {
+                                                setIsMenuOpen(false);
+                                                setSelectedConvId(null);
+                                                router.push('/landlord/messages');
+                                            }}
+                                        >
+                                            Close chat
+                                        </button>
+                                    </div>
+                                ) : null}
                             </div>
                         </div>
 
-                        <div className={styles.messageList}>
+                        <div className={styles.messageList} ref={messageListRef}>
                             {msgLoading ? (
                                 <div style={{ textAlign: 'center', padding: '2rem', color: '#94a3b8' }}>Loading messages...</div>
                             ) : messages.length === 0 ? (
@@ -312,13 +641,25 @@ function MessagesContent() {
                                         <div
                                             key={msg.id}
                                             className={`${styles.messageGroup} ${isMe ? styles.sent : styles.received}`}
+                                            data-message-id={msg.id}
                                         >
                                             <div className={styles.messageBubble}>
                                                 {msg.content}
                                             </div>
-                                            <span className={styles.messageTime}>
-                                                {new Date(msg.created_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
-                                            </span>
+                                            <div className={styles.messageMeta}>
+                                                <span className={styles.messageTime}>
+                                                    {new Date(msg.created_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                                                </span>
+                                                {isMe ? (() => {
+                                                    const status = getMessageStatus(msg);
+                                                    return (
+                                                        <span className={styles.messageStatus}>
+                                                            {renderStatusIcon(status)}
+                                                            <span>{status}</span>
+                                                        </span>
+                                                    );
+                                                })() : null}
+                                            </div>
                                         </div>
                                     );
                                 })
@@ -360,8 +701,78 @@ function MessagesContent() {
                         <p>Select a conversation from the sidebar to start chatting.</p>
                     </div>
                 )}
+                </div>
             </div>
-        </div>
+            {isUnitModalOpen ? (
+                <div className={styles.modalOverlay} onClick={() => setIsUnitModalOpen(false)}>
+                    <div className={styles.modalCard} onClick={(event) => event.stopPropagation()}>
+                        <div className={styles.modalHeader}>
+                            <div>
+                                <p className={styles.modalTitle}>Unit details</p>
+                                <p className={styles.modalSubtitle}>{participantName}</p>
+                            </div>
+                            <button className={styles.iconButton} onClick={() => setIsUnitModalOpen(false)}>
+                                <MoreVertical size={18} />
+                            </button>
+                        </div>
+                        <div className={styles.modalBody}>
+                            <div className={styles.detailRow}>
+                                <User2 size={18} />
+                                <div>
+                                    <p className={styles.detailLabel}>Role</p>
+                                    <p className={styles.detailValue}>{roleLabel}</p>
+                                </div>
+                            </div>
+                            <div className={styles.detailRow}>
+                                <MapPin size={18} />
+                                <div>
+                                    <p className={styles.detailLabel}>Unit</p>
+                                    <p className={styles.detailValue}>
+                                        {unitLabel || 'No unit on file'}
+                                    </p>
+                                    {propertyLabel ? (
+                                        <p className={styles.detailSubValue}>{propertyLabel}</p>
+                                    ) : null}
+                                </div>
+                            </div>
+                        </div>
+                        <div className={styles.modalActions}>
+                            <button
+                                className={styles.secondaryButton}
+                                onClick={() => setIsUnitModalOpen(false)}
+                            >
+                                Close
+                            </button>
+                            <button
+                                className={styles.primaryButton}
+                                onClick={() => {
+                                    setIsUnitModalOpen(false);
+                                    setIsUnitMapOpen(true);
+                                }}
+                            >
+                                Open unit map
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            ) : null}
+            {isUnitMapOpen ? (
+                <div className={styles.modalOverlay} onClick={() => setIsUnitMapOpen(false)}>
+                    <div className={styles.mapModalCard} onClick={(event) => event.stopPropagation()}>
+                        <button className={styles.mapCloseButton} onClick={() => setIsUnitMapOpen(false)}>
+                            <X size={18} />
+                        </button>
+                        <div className={styles.mapFrame}>
+                            <iframe
+                                title="Unit map"
+                                src={participantUnit?.property?.id ? `/landlord/unit-map?embed=1&propertyId=${participantUnit.property.id}` : '/landlord/unit-map?embed=1'}
+                                className={styles.mapIframe}
+                            />
+                        </div>
+                    </div>
+                </div>
+            ) : null}
+        </>
     );
 }
 

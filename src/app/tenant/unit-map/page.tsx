@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useState } from "react";
 import Link from "next/link";
-import { useRouter } from "next/navigation";
+import { useRouter, useSearchParams } from "next/navigation";
 import { createClient } from "@/utils/supabase/client";
 import { Building2, ChevronLeft, Loader2, MessageSquare, Users } from "lucide-react";
 import styles from "./unit-map.module.css";
@@ -67,6 +67,8 @@ export default function TenantUnitMapPage() {
     const [errorMessage, setErrorMessage] = useState<string | null>(null);
 
     const router = useRouter();
+    const searchParams = useSearchParams();
+    const isEmbed = searchParams.get("embed") === "1";
     const supabase = useMemo(() => createClient(), []);
 
     const fetchUnitMap = useCallback(async () => {
@@ -306,9 +308,33 @@ export default function TenantUnitMapPage() {
                 <Building2 size={42} />
                 <h2>No active home found</h2>
                 <p>Once you have an active lease, your unit map will appear here.</p>
-                <Link href="/tenant/dashboard" className={styles.primaryLink}>
-                    Back to Dashboard
-                </Link>
+                {!isEmbed ? (
+                    <Link href="/tenant/dashboard" className={styles.primaryLink}>
+                        Back to Dashboard
+                    </Link>
+                ) : null}
+            </div>
+        );
+    }
+
+    if (isEmbed) {
+        return (
+            <div className={styles.embedPage}>
+                {errorMessage && (
+                    <div className={styles.errorBanner}>{errorMessage}</div>
+                )}
+                <div className={styles.embedBuilder}>
+                    <VisualBuilder
+                        propertyId={property.id}
+                        initialUnits={visualUnits}
+                        readOnly
+                        selectedUnitId={selectedUnitId}
+                        onUnitClick={(unitId) => setSelectedUnitId(unitId)}
+                        currentUserUnitId={currentUserUnitId}
+                        currentUserInitials={currentUserInitials || undefined}
+                        currentUserAvatarUrl={currentUserAvatarUrl}
+                    />
+                </div>
             </div>
         );
     }
