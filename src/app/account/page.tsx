@@ -170,7 +170,7 @@ export default function AccountPage() {
                         <div className={styles.logoIcon}>
                             <Building size={18} />
                         </div>
-                        <span>Tenant Platform</span>
+                        <span>iReside</span>
                     </Link>
                     <div className={styles.navActions}>
                         <Link href="/" className={styles.navLink}>

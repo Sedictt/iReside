@@ -33,7 +33,7 @@ export function Hero({ tenantHref, landlordHref }: { tenantHref: string; landlor
                 className={styles.badgeNew}
             >
                 <Star size={12} fill="#e2e8f0" />
-                <span>Tenant Platform 2.0 is live</span>
+                <span>iReside 2.0 is live</span>
             </motion.div>
 
             <motion.h1

@@ -30,13 +30,15 @@ import {
   Clock,
   CreditCard,
   Grid,
-  Users
+  Users,
+  UserCircle2
 } from "lucide-react";
 import { useEffect, useState } from "react";
 import { User } from "@supabase/supabase-js";
 
 export default function LandingPage() {
   const [user, setUser] = useState<User | null>(null);
+  const [userRole, setUserRole] = useState<"tenant" | "landlord" | "admin" | null>(null);
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
 
   useEffect(() => {
@@ -44,12 +46,35 @@ export default function LandingPage() {
     async function getUser() {
       const { data: { user } } = await supabase.auth.getUser();
       setUser(user);
+      if (user) {
+        const { data: profile } = await supabase
+          .from("profiles")
+          .select("role")
+          .eq("id", user.id)
+          .single();
+        setUserRole(profile?.role ?? "tenant");
+      } else {
+        setUserRole(null);
+      }
     }
     getUser();
   }, []);
 
   const tenantCtaHref = user ? "/tenant/search" : "/login";
   const landlordCtaHref = user ? "/account" : "/login";
+  const dashboardHref = user
+    ? userRole === "landlord"
+      ? "/landlord/dashboard"
+      : userRole === "admin"
+        ? "/admin"
+        : "/tenant/dashboard"
+    : null;
+
+  const handleSignOut = async () => {
+    const supabase = createClient();
+    await supabase.auth.signOut();
+    window.location.href = "/";
+  };
 
   return (
     <main className={styles.main}>
@@ -61,7 +86,7 @@ export default function LandingPage() {
               <Building2 size={22} />
             </div>
             <div className={styles.logoText}>
-              <span className={styles.logoTitle}>TenantPro</span>
+              <span className={styles.logoTitle}>iReside</span>
               <span className={styles.logoSubtitle}>Property Management</span>
             </div>
           </div>
@@ -82,9 +107,33 @@ export default function LandingPage() {
                 </Link>
               </>
             ) : (
-              <Link href="/account" className={styles.getStartedBtn}>
-                My Account
-              </Link>
+              <>
+                <Link href={dashboardHref ?? "/account"} className={styles.getStartedBtn}>
+                  Dashboard
+                </Link>
+                <div className={styles.profileMenuWrap}>
+                  <Link href="/account" className={styles.profileIconBtn} aria-label="Open profile">
+                    <UserCircle2 size={22} />
+                  </Link>
+                  <div className={styles.profileMenu} role="menu" aria-label="Profile menu">
+                    <Link href="/account" className={styles.profileMenuItem} role="menuitem">
+                      Profile
+                    </Link>
+                    <Link href="/account/settings" className={styles.profileMenuItem} role="menuitem">
+                      Settings
+                    </Link>
+                    <div className={styles.profileMenuDivider} />
+                    <button
+                      type="button"
+                      className={styles.profileMenuItem}
+                      onClick={handleSignOut}
+                      role="menuitem"
+                    >
+                      Log out
+                    </button>
+                  </div>
+                </div>
+              </>
             )}
           </div>
 
@@ -111,8 +160,8 @@ export default function LandingPage() {
                 </Link>
               </>
             ) : (
-              <Link href="/account" className={styles.getStartedBtn}>
-                My Account
+              <Link href={dashboardHref ?? "/account"} className={styles.getStartedBtn}>
+                Dashboard
               </Link>
             )}
           </div>
@@ -545,7 +594,7 @@ export default function LandingPage() {
             <div className={styles.footerBrandCol}>
               <div className={styles.footerLogo}>
                 <Building2 size={24} className={styles.brandIcon} />
-                <span className={styles.brandName}>TenantPro</span>
+                <span className={styles.brandName}>iReside</span>
               </div>
               <p className={styles.brandDesc}>
                 Simplifying property management with intelligent tools for landlords and seamless experiences for tenants.
@@ -594,7 +643,7 @@ export default function LandingPage() {
           </div>
 
           <div className={styles.footerBottom}>
-            <p>&copy; {new Date().getFullYear()} TenantPro. All rights reserved.</p>
+            <p>&copy; {new Date().getFullYear()} iReside. All rights reserved.</p>
             <div className={styles.footerBottomLinks}>
               <a href="#">Privacy</a>
               <span className={styles.dot}>•</span>

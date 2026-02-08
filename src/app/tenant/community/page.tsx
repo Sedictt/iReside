@@ -315,7 +315,7 @@ export default function CommunityPage() {
                         <div className={styles.logoIcon}>
                             <Building size={18} />
                         </div>
-                        <span>Tenant Platform</span>
+                        <span>iReside</span>
                     </Link>
                     <div className={styles.navActions}>
                         <Link href="/tenant/dashboard" className={styles.navLink}>

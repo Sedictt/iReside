@@ -4,7 +4,7 @@ import { Rethink_Sans } from "next/font/google";
 import { GeistSans } from "geist/font/sans";
 
 export const metadata: Metadata = {
-  title: "Tenant Platform",
+  title: "iReside",
   description: "Modern Landlord & Tenant Management Prototype",
 };
 
