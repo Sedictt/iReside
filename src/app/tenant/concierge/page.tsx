@@ -2,13 +2,16 @@
 
 import { useState, useEffect, useRef } from "react";
 import { createClient } from "@/utils/supabase/client";
-import { Bot, Send, ArrowLeft, Loader2, Sparkles } from "lucide-react";
+import { Send, ArrowLeft, Loader2, Zap, Home, Wifi, Shield } from "lucide-react";
 import { useRouter } from "next/navigation";
+import { motion, AnimatePresence } from "framer-motion";
 import styles from "./page.module.css";
+import Image from "next/image";
 
 type Message = {
     role: 'bot' | 'user';
     content: string;
+    id: string; // Add ID for better key management in Framer Motion
 };
 
 type KnowledgeItem = {
@@ -17,27 +20,56 @@ type KnowledgeItem = {
     content: string;
 };
 
+// Define template questions outside the component to avoid recreation
+const TEMPLATE_QUESTIONS = [
+    { icon: <Wifi size={14} />, text: "What's the wifi password?" },
+    { icon: <Zap size={14} />, text: "How do I use the thermostat?" },
+    { icon: <Home size={14} />, text: "Where is the trash disposal?" },
+    { icon: <Shield size={14} />, text: "What are the quiet hours?" },
+];
+
+const BotAvatar = ({ className, style }: { className?: string, style?: React.CSSProperties }) => (
+    <div className={className} style={{ position: 'relative', overflow: 'hidden', ...style }}>
+        <Image
+            src="/ai-avatar.png"
+            alt="AI Concierge"
+            fill
+            sizes="(max-width: 768px) 100vw, (max-width: 1200px) 50vw, 33vw"
+            style={{ objectFit: 'cover' }}
+            priority
+        />
+    </div>
+);
+
 export default function ConciergePage() {
+    // Initial message with a unique ID
     const [messages, setMessages] = useState<Message[]>([
-        { role: 'bot', content: "Hello! I'm your AI Property Concierge. Ask me anything about your home, rules, or amenities!" }
+        {
+            role: 'bot',
+            content: "Hi! I'm I.R.I.S., your property assistant. How can I help you today?",
+            id: 'init-1'
+        }
     ]);
     const [input, setInput] = useState("");
     const [isTyping, setIsTyping] = useState(false);
     const [knowledgeBase, setKnowledgeBase] = useState<KnowledgeItem[]>([]);
+    const [propertyId, setPropertyId] = useState<string | null>(null);
     const [propertyInfo, setPropertyInfo] = useState<{ name: string } | null>(null);
     const [loading, setLoading] = useState(true);
 
     const router = useRouter();
     const supabase = createClient();
     const messagesEndRef = useRef<HTMLDivElement>(null);
+    const inputRef = useRef<HTMLInputElement>(null);
 
     useEffect(() => {
         fetchPropertyAndKnowledge();
     }, []);
 
+    // Also scroll on typing status change to keep the typing indicator in view
     useEffect(() => {
         messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
-    }, [messages]);
+    }, [messages, isTyping]);
 
     const fetchPropertyAndKnowledge = async () => {
         const { data: { user } } = await supabase.auth.getUser();
@@ -46,7 +78,6 @@ export default function ConciergePage() {
             return;
         }
 
-        // 1. Get user's active property
         const { data: lease } = await supabase
             .from('leases')
             .select('units(id, property_id, properties(name))')
@@ -57,8 +88,8 @@ export default function ConciergePage() {
         const units = lease?.units as any;
         if (units?.properties) {
             setPropertyInfo({ name: units.properties.name });
+            setPropertyId(units.property_id || null);
 
-            // 2. Fetch knowledge base for this property
             const { data: kb } = await supabase
                 .from('property_knowledge_base')
                 .select('category, topic, content')
@@ -70,111 +101,187 @@ export default function ConciergePage() {
         setLoading(false);
     };
 
-    const handleSend = async (e: React.FormEvent) => {
-        e.preventDefault();
-        if (!input.trim() || isTyping) return;
+    const handleSend = async (e?: React.FormEvent, overrideInput?: string) => {
+        if (e) e.preventDefault();
 
-        const userMsg = input.trim();
+        const textToSend = overrideInput || input.trim();
+        if (!textToSend || isTyping) return;
+
+        // Optimistically add user message
+        const userMsgId = Date.now().toString();
+        setMessages(prev => [...prev, { role: 'user', content: textToSend, id: userMsgId }]);
         setInput("");
-        setMessages(prev => [...prev, { role: 'user', content: userMsg }]);
         setIsTyping(true);
 
-        // Mimic AI processing delay
-        setTimeout(() => {
-            const botResponse = findBestResponse(userMsg);
-            setMessages(prev => [...prev, { role: 'bot', content: botResponse }]);
-            setIsTyping(false);
-        }, 1000);
-    };
-
-    const findBestResponse = (query: string): string => {
-        const lowerQuery = query.toLowerCase();
-
-        // 1. Try to find exact topic/category matches
-        let bestMatch: KnowledgeItem | null = null;
-        let highestScore = 0;
-
-        knowledgeBase.forEach(item => {
-            let score = 0;
-            const topic = item.topic.toLowerCase();
-            const category = item.category.toLowerCase();
-            const content = item.content.toLowerCase();
-
-            // Simple scoring logic
-            if (lowerQuery.includes(topic)) score += 50;
-            if (lowerQuery.includes(category)) score += 20;
-
-            // Keyword overlaps
-            const words = lowerQuery.split(/\s+/);
-            words.forEach(word => {
-                if (word.length > 3) {
-                    if (topic.includes(word)) score += 10;
-                    if (content.includes(word)) score += 5;
-                }
+        try {
+            const response = await fetch('/api/ai/concierge', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    question: textToSend,
+                    propertyId,
+                    propertyName: propertyInfo?.name,
+                }),
             });
 
-            if (score > highestScore) {
-                highestScore = score;
-                bestMatch = item;
-            }
-        });
+            if (!response.ok) throw new Error(`API error: ${response.status}`);
 
-        if (bestMatch && highestScore > 10) {
-            return (bestMatch as KnowledgeItem).content;
+            const data = await response.json();
+            const botResponse = data.response || "I'm sorry, I couldn't process that. Please try again.";
+
+            setMessages(prev => [...prev, { role: 'bot', content: botResponse, id: `bot-${Date.now()}` }]);
+        } catch (error) {
+            console.error('Concierge error:', error);
+            setMessages(prev => [
+                ...prev,
+                {
+                    role: 'bot',
+                    content: "I'm having trouble connecting to the concierge service. Please try again later.",
+                    id: `error-${Date.now()}`
+                },
+            ]);
+        } finally {
+            setIsTyping(false);
+            // Focus input after a short delay
+            setTimeout(() => inputRef.current?.focus(), 100);
         }
-
-        return "I'm sorry, I don't have information about that yet. You might want to contact your landlord directly or check the community forum.";
     };
 
     if (loading) {
         return (
-            <div className={styles.emptyState}>
-                <Loader2 className={styles.spin} size={32} />
-                <p>Connecting to your property concierge...</p>
+            <div className={styles.loadingContainer}>
+                <motion.div
+                    animate={{ rotate: 360 }}
+                    transition={{ duration: 1, repeat: Infinity, ease: "linear" }}
+                >
+                    <Loader2 className={styles.loadingIcon} size={40} />
+                </motion.div>
+                <p>Initializing I.R.I.S....</p>
             </div>
         );
     }
 
     return (
         <div className={styles.container}>
-            <header className={styles.header}>
-                <button className={styles.backBtn} onClick={() => router.push('/tenant/dashboard')}>
-                    <ArrowLeft size={20} />
-                </button>
-                <div className={styles.titleSection}>
-                    <h1>AI Property Concierge</h1>
-                    <p>Assistant for <strong>{propertyInfo?.name || 'Your Property'}</strong></p>
-                </div>
-            </header>
+            <div className={styles.bgDecoration} />
 
-            <div className={styles.chatWindow}>
-                <div className={styles.messages}>
-                    {messages.map((msg, idx) => (
-                        <div key={idx} className={`${styles.message} ${styles[msg.role]}`}>
-                            {msg.content}
-                        </div>
-                    ))}
-                    {isTyping && (
-                        <div className={styles.message + ' ' + styles.bot}>
-                            <Loader2 className={styles.spin} size={16} />
-                        </div>
-                    )}
-                    <div ref={messagesEndRef} />
-                </div>
-
-                <form className={styles.inputArea} onSubmit={handleSend}>
-                    <input
-                        className={styles.inputField}
-                        placeholder="Ask a question (e.g., 'What's the wifi password?')"
-                        value={input}
-                        onChange={e => setInput(e.target.value)}
-                    />
-                    <button className={styles.sendBtn} disabled={!input.trim() || isTyping}>
-                        <Send size={18} />
-                        Send
+            <motion.div
+                className={styles.chatInterface}
+                initial={{ opacity: 0, scale: 0.95, y: 20 }}
+                animate={{ opacity: 1, scale: 1, y: 0 }}
+                transition={{ duration: 0.4, ease: "easeOut" }}
+            >
+                {/* Header */}
+                <header className={styles.header}>
+                    <button className={styles.backBtn} onClick={() => router.push('/tenant/dashboard')}>
+                        <ArrowLeft size={20} />
                     </button>
-                </form>
-            </div>
+                    <div className={styles.headerContent}>
+                        <div className={styles.avatarContainer}>
+                            <BotAvatar className={styles.avatarImage} />
+                            <div className={styles.statusDot} />
+                        </div>
+                        <div className={styles.headerText}>
+                            <h1>I.R.I.S.</h1>
+                            <span className={styles.irisMeaning}>iReside Intelligent Support</span>
+                            <p>{propertyInfo?.name ? propertyInfo.name : 'Your Personal Property Assistant'}</p>
+                        </div>
+                    </div>
+                </header>
+
+                {/* Chat Area */}
+                <div className={styles.chatWrapper}>
+                    <div className={styles.messagesList}>
+                        <AnimatePresence mode="popLayout">
+                            {messages.map((msg) => (
+                                <motion.div
+                                    key={msg.id}
+                                    initial={{ opacity: 0, y: 10, scale: 0.98 }}
+                                    animate={{ opacity: 1, y: 0, scale: 1 }}
+                                    exit={{ opacity: 0, scale: 0.9 }}
+                                    transition={{ duration: 0.2 }}
+                                    layout
+                                    className={`${styles.messageRow} ${msg.role === 'user' ? styles.userRow : styles.botRow}`}
+                                >
+                                    {msg.role === 'bot' && (
+                                        <div className={styles.messageAvatar}>
+                                            <BotAvatar style={{ width: '100%', height: '100%' }} />
+                                        </div>
+                                    )}
+                                    <div className={`${styles.bubble} ${styles[msg.role]}`}>
+                                        {msg.role === 'bot' ? (
+                                            // Simple parser for bold text (**text**)
+                                            msg.content.split(/(\*\*.*?\*\*)/).map((part, index) => (
+                                                part.startsWith('**') && part.endsWith('**') ? (
+                                                    <strong key={index}>{part.slice(2, -2)}</strong>
+                                                ) : (
+                                                    <span key={index}>{part}</span>
+                                                )
+                                            ))
+                                        ) : (
+                                            msg.content
+                                        )}
+                                    </div>
+                                </motion.div>
+                            ))}
+                            {isTyping && (
+                                <motion.div
+                                    initial={{ opacity: 0, y: 10 }}
+                                    animate={{ opacity: 1, y: 0 }}
+                                    exit={{ opacity: 0 }}
+                                    className={`${styles.messageRow} ${styles.botRow}`}
+                                >
+                                    <div className={styles.messageAvatar}>
+                                        <BotAvatar style={{ width: '100%', height: '100%' }} />
+                                    </div>
+                                    <div className={`${styles.bubble} ${styles.typingBubble}`}>
+                                        <span className={styles.dot} />
+                                        <span className={styles.dot} />
+                                        <span className={styles.dot} />
+                                    </div>
+                                </motion.div>
+                            )}
+                        </AnimatePresence>
+                        <div ref={messagesEndRef} />
+                    </div>
+                </div>
+
+                {/* Input Section */}
+                <div className={styles.footer}>
+                    <div className={styles.quickQuestions}>
+                        {TEMPLATE_QUESTIONS.map((q, idx) => (
+                            <button
+                                key={idx}
+                                onClick={() => handleSend(undefined, q.text)}
+                                className={styles.chip}
+                                disabled={isTyping}
+                                type="button"
+                            >
+                                {q.icon}
+                                <span>{q.text}</span>
+                            </button>
+                        ))}
+                    </div>
+
+                    <form className={styles.inputForm} onSubmit={(e) => handleSend(e)}>
+                        <input
+                            ref={inputRef}
+                            className={styles.input}
+                            placeholder="Type a message..."
+                            value={input}
+                            onChange={e => setInput(e.target.value)}
+                            disabled={isTyping}
+                        />
+                        <button
+                            className={styles.sendButton}
+                            disabled={!input.trim() || isTyping}
+                            type="submit"
+                        >
+                            {isTyping ? <Loader2 className={styles.spin} size={18} /> : <Send size={18} />}
+                        </button>
+                    </form>
+                </div>
+            </motion.div>
         </div>
     );
 }

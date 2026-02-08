@@ -1,12 +1,14 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { Suspense, useCallback, useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
 import { createClient } from "@/utils/supabase/client";
 import { Building2, ChevronLeft, Loader2, MessageSquare, Users } from "lucide-react";
 import styles from "./unit-map.module.css";
 import VisualBuilder from "@/components/landlord/VisualBuilder";
+
+export const dynamic = 'force-dynamic';
 
 type ProfileRow = {
     full_name: string | null;
@@ -54,7 +56,7 @@ function normalizeStatus(status: string) {
     return "vacant";
 }
 
-export default function TenantUnitMapPage() {
+function TenantUnitMapContent() {
     const [units, setUnits] = useState<UnitRow[]>([]);
     const [property, setProperty] = useState<PropertySummary | null>(null);
     const [selectedUnitId, setSelectedUnitId] = useState<string | null>(null);
@@ -432,5 +434,13 @@ export default function TenantUnitMapPage() {
                 </aside>
             </div>
         </div>
+    );
+}
+
+export default function TenantUnitMapPage() {
+    return (
+        <Suspense fallback={<div className={styles.emptyState}><Loader2 size={32} /></div>}>
+            <TenantUnitMapContent />
+        </Suspense>
     );
 }

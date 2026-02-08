@@ -1,10 +1,9 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { Building, MapPin, Loader2, Edit2, Check, X, User, Filter, ArrowUpDown, Bot } from "lucide-react";
+import { Building, MapPin, Loader2, Edit2, Check, X, User, Filter, ArrowUpDown } from "lucide-react";
 import { createClient } from "@/utils/supabase/client";
 import styles from "./properties.module.css";
-import ConciergeModal from "@/components/landlord/ConciergeModal";
 
 // Interface matches database
 type UnitStatusDb = 'available' | 'occupied' | 'maintenance' | 'neardue';
@@ -42,9 +41,6 @@ export default function PropertiesPage() {
 
     const [filterStatus, setFilterStatus] = useState<string>('all');
     const [sortBy, setSortBy] = useState<string>('unit_number');
-
-    const [isConciergeOpen, setIsConciergeOpen] = useState(false);
-    const [selectedProperty, setSelectedProperty] = useState<{ id: string; name: string } | null>(null);
 
     const supabase = useMemo(() => createClient(), []);
 
@@ -208,20 +204,8 @@ export default function PropertiesPage() {
                                 {property.address}
                             </div>
                         </div>
-                        <div style={{ display: 'flex', gap: '1rem', alignItems: 'center' }}>
-                            <button
-                                className={styles.conciergeBtn}
-                                onClick={() => {
-                                    setSelectedProperty({ id: property.id, name: property.name });
-                                    setIsConciergeOpen(true);
-                                }}
-                            >
-                                <Bot size={16} />
-                                AI Concierge
-                            </button>
-                            <div className={styles.unitBadge}>
-                                {property.units.length} Units
-                            </div>
+                        <div className={styles.unitBadge}>
+                            {property.units.length} Units
                         </div>
                     </div>
 
@@ -308,15 +292,6 @@ export default function PropertiesPage() {
                     </div>
                 </div>
             ))}
-
-            {selectedProperty && (
-                <ConciergeModal
-                    isOpen={isConciergeOpen}
-                    onClose={() => setIsConciergeOpen(false)}
-                    propertyId={selectedProperty.id}
-                    propertyName={selectedProperty.name}
-                />
-            )}
         </div>
     );
 }

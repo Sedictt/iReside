@@ -1,64 +1,95 @@
 
 import { NextResponse } from 'next/server';
+import { GoogleGenerativeAI } from '@google/generative-ai';
+
+const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY || '');
 
 export async function POST(request: Request) {
     try {
         const { description, image } = await request.json();
 
-        // SIMULATION: In a real app, you would call OpenAI/Claude here.
-        // const response = await openai.chat.completions.create({ ... })
+        if (!description) {
+            return NextResponse.json(
+                { error: 'Description is required' },
+                { status: 400 }
+            );
+        }
 
-        // We will simulate a processing delay
-        await new Promise(resolve => setTimeout(resolve, 2000));
+        if (!process.env.GEMINI_API_KEY) {
+            return NextResponse.json(
+                { error: 'GEMINI_API_KEY not configured' },
+                { status: 500 }
+            );
+        }
 
-        // Intelligent Mock Response Logic based on keywords
-        // This is just to demonstrate the UI capabilities without needing a live API key right now.
-        const descLower = description.toLowerCase();
+        const model = genAI.getGenerativeModel({ model: 'gemini-2.0-flash' });
 
-        let category = 'General Maintenance';
-        let severity = 'Medium';
-        let summary = 'The tenant has reported a maintenance issue that requires attention.';
-        let action = 'Schedule a visit to inspect the issue.';
-        let cost = '$50 - $150';
+        // Create a detailed prompt for maintenance analysis
+        const prompt = `You are a property maintenance triage expert. Analyze this maintenance request and respond ONLY with a valid JSON object (no markdown, no code blocks, just raw JSON).
 
-        if (descLower.includes('leak') || descLower.includes('water') || descLower.includes('drip') || descLower.includes('plumbing')) {
-            category = 'Plumbing';
-            severity = 'High';
-            summary = 'Detected potential water damage risk. Leaks can lead to structural damage and mold if not addressed immediately.';
-            action = 'Shut off water supply if possible. Dispatch a licensed plumber immediately to locate and seal the leak.';
-            cost = '$150 - $400';
-        } else if (descLower.includes('smoke') || descLower.includes('fire') || descLower.includes('spark') || descLower.includes('electric')) {
-            category = 'Electrical';
-            severity = 'Critical';
-            summary = 'Potential fire hazard reported. Electrical issues represent a significant safety risk to tenants and property.';
-            action = 'Advise tenant to turn off main breaker if safe. Dispatch emergency electrician immediately.';
-            cost = '$200 - $600';
-        } else if (descLower.includes('lock') || descLower.includes('door') || descLower.includes('key')) {
-            category = 'Security';
-            severity = 'High';
-            summary = 'Property security may be compromised. Unsecured entry points create liability and safety concerns.';
-            action = 'Dispatch locksmith to repair or replace the lock mechanism.';
-            cost = '$100 - $250';
-        } else if (descLower.includes('ac') || descLower.includes('heat') || descLower.includes('cool')) {
-            category = 'HVAC';
-            severity = 'Medium';
-            summary = 'Climate control system reported malfunctioning. This affects tenant habitability comfort.';
-            action = 'Check thermostat settings. Schedule HVAC technician for inspection.';
-            cost = '$150 - $500';
+Maintenance Request: "${description}"
+
+Respond with EXACTLY this JSON structure (no variations):
+{
+  "category": "string (one of: Plumbing, Electrical, HVAC, Security, Structural, Appliances, General Maintenance)",
+  "severity": "string (one of: Low, Medium, High, Critical)",
+  "summary": "string (2-3 sentence technical assessment)",
+  "action": "string (specific action steps for landlord/contractor)",
+  "estimatedCost": "string (estimated cost range like '$100 - $500')",
+  "confidence": "number (0.0-1.0)"
+}
+
+Be concise. Prioritize safety-critical issues as Critical or High severity.`;
+
+        const result = await model.generateContent([
+            {
+                text: prompt,
+            },
+            // Include image if provided
+            ...(image
+                ? [
+                    {
+                        inlineData: {
+                            mimeType: 'image/jpeg',
+                            data: image.split(',')[1] || image,
+                        },
+                    },
+                ]
+                : []),
+        ]);
+
+        const responseText = result.response.text();
+
+        // Parse the JSON response
+        let analysisData;
+        try {
+            // Extract JSON from the response (in case there's extra text)
+            const jsonMatch = responseText.match(/\{[\s\S]*\}/);
+            if (!jsonMatch) {
+                throw new Error('No JSON found in response');
+            }
+            analysisData = JSON.parse(jsonMatch[0]);
+        } catch (parseError) {
+            console.error('JSON parse error:', responseText);
+            // Return a safe default response
+            analysisData = {
+                category: 'General Maintenance',
+                severity: 'Medium',
+                summary: 'A maintenance issue has been reported and requires inspection.',
+                action: 'Schedule a visit to inspect and assess the issue.',
+                estimatedCost: '$100 - $300',
+                confidence: 0.7,
+            };
         }
 
         return NextResponse.json({
-            category,
-            severity,
-            summary,
-            action,
-            estimatedCost: cost,
-            confidence: 0.95
+            ...analysisData,
+            model: 'gemini-2.0-flash',
         });
-
     } catch (error) {
+        console.error('Maintenance analysis error:', error);
         return NextResponse.json(
-            { error: 'Failed to analyze request' },
+            { error: 'Failed to analyze maintenance request' },
             { status: 500 }
         );
     }

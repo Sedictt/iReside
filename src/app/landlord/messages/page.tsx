@@ -282,7 +282,19 @@ function MessagesContent() {
                 return;
             }
 
-            const unit = (data[0] as { unit?: UnitInfo | null }).unit || null;
+            // Handle the unit array and property array from the join
+            const unitArray = (data[0] as any)?.unit;
+            if (!unitArray || unitArray.length === 0) {
+                setParticipantUnit(null);
+                return;
+            }
+
+            const unitData = unitArray[0];
+            const unit: UnitInfo = {
+                id: unitData.id,
+                unit_number: unitData.unit_number,
+                property: unitData.property?.[0] || null,
+            };
             setParticipantUnit(unit);
         };
 

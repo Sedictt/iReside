@@ -283,8 +283,25 @@ function MessagesContent() {
                 return;
             }
 
-            const unit = (data[0] as { unit?: UnitInfo | null }).unit || null;
-            setParticipantUnit(unit);
+            const rawData = data[0] as any;
+            const unitData = Array.isArray(rawData.unit) ? rawData.unit[0] : rawData.unit;
+
+            if (!unitData) {
+                setParticipantUnit(null);
+                return;
+            }
+
+            const propertyData = Array.isArray(unitData.property) ? unitData.property[0] : unitData.property;
+
+            setParticipantUnit({
+                id: unitData.id,
+                unit_number: unitData.unit_number,
+                property: propertyData ? {
+                    id: propertyData.id,
+                    name: propertyData.name,
+                    address: propertyData.address
+                } : null
+            });
         };
 
         void fetchParticipantUnit();
@@ -481,245 +498,245 @@ function MessagesContent() {
             <div className={styles.container}>
                 {/* Sidebar */}
                 <div className={`${styles.sidebar} ${selectedConvId ? styles.hidden : ''} md:flex`}>
-                <div className={styles.sidebarHeader}>
-                    <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '0.5rem' }}>
-                        <h1 className={styles.title}>Messages</h1>
-                        <button
-                            onClick={() => router.push('/tenant/dashboard')}
-                            style={{
-                                background: 'transparent',
-                                border: 'none',
-                                color: '#64748b',
-                                cursor: 'pointer',
-                                display: 'flex',
-                                alignItems: 'center',
-                                gap: '0.25rem'
-                            }}
-                            title="Back to Dashboard"
-                        >
-                            <Home size={20} />
-                        </button>
-                    </div>
-                    <div className={styles.searchBar}>
-                        <Search className={styles.searchIcon} size={18} />
-                        <input
-                            type="text"
-                            className={styles.searchInput}
-                            placeholder="Search..."
-                            value={searchTerm}
-                            onChange={e => setSearchTerm(e.target.value)}
-                        />
-                    </div>
-                </div>
-
-                <div className={styles.conversationList}>
-                    {filteredConversations.length === 0 ? (
-                        <div style={{ padding: '2rem', textAlign: 'center', color: '#94a3b8' }}>
-                            <MessageSquare size={32} style={{ marginBottom: '0.5rem', opacity: 0.5 }} />
-                            <p>No conversations yet.</p>
-                            <p style={{ fontSize: '0.8rem', marginTop: '0.5rem' }}>Visit Community to message neighbors.</p>
-                        </div>
-                    ) : (
-                        filteredConversations.map(conv => (
-                            <div
-                                key={conv.id}
-                                className={`${styles.conversationCard} ${selectedConvId === conv.id ? styles.active : ''}`}
-                                onClick={() => {
-                                    setSelectedConvId(conv.id);
-                                    router.push(`/tenant/messages?id=${conv.id}`);
+                    <div className={styles.sidebarHeader}>
+                        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '0.5rem' }}>
+                            <h1 className={styles.title}>Messages</h1>
+                            <button
+                                onClick={() => router.push('/tenant/dashboard')}
+                                style={{
+                                    background: 'transparent',
+                                    border: 'none',
+                                    color: '#64748b',
+                                    cursor: 'pointer',
+                                    display: 'flex',
+                                    alignItems: 'center',
+                                    gap: '0.25rem'
                                 }}
+                                title="Back to Dashboard"
                             >
-                                <div className={styles.avatar}>
-                                    {conv.other_participant?.avatar_url ? (
-                                        <img src={conv.other_participant.avatar_url} alt="Avatar" />
-                                    ) : (
-                                        <span>{conv.other_participant?.full_name?.charAt(0).toUpperCase() || '?'}</span>
-                                    )}
-                                </div>
-                                <div className={styles.cardContent}>
-                                    <div className={styles.cardTop}>
-                                        <span className={styles.name}>{conv.other_participant?.full_name || 'Unknown'}</span>
-                                        <span className={styles.time}>{new Date(conv.updated_at).toLocaleDateString()}</span>
-                                    </div>
-                                    <div className={styles.listingTitle}>
-                                        {conv.listing?.title || 'Direct Message'}
-                                    </div>
-                                    <div className={styles.lastMessage}>
-                                        Click to view chat
-                                    </div>
-                                </div>
-                            </div>
-                        ))
-                    )}
-                </div>
-            </div>
+                                <Home size={20} />
+                            </button>
+                        </div>
+                        <div className={styles.searchBar}>
+                            <Search className={styles.searchIcon} size={18} />
+                            <input
+                                type="text"
+                                className={styles.searchInput}
+                                placeholder="Search..."
+                                value={searchTerm}
+                                onChange={e => setSearchTerm(e.target.value)}
+                            />
+                        </div>
+                    </div>
 
-            {/* Chat Area */}
-            <div className={`${styles.chatArea} ${!selectedConvId ? styles.hidden : ''} md:flex`}>
-                {selectedConvId && activeConversation ? (
-                    <>
-                        <div className={styles.chatHeader}>
-                            <div className={styles.chatHeaderInfo}>
-                                <button
-                                    className={styles.backButton}
+                    <div className={styles.conversationList}>
+                        {filteredConversations.length === 0 ? (
+                            <div style={{ padding: '2rem', textAlign: 'center', color: '#94a3b8' }}>
+                                <MessageSquare size={32} style={{ marginBottom: '0.5rem', opacity: 0.5 }} />
+                                <p>No conversations yet.</p>
+                                <p style={{ fontSize: '0.8rem', marginTop: '0.5rem' }}>Visit Community to message neighbors.</p>
+                            </div>
+                        ) : (
+                            filteredConversations.map(conv => (
+                                <div
+                                    key={conv.id}
+                                    className={`${styles.conversationCard} ${selectedConvId === conv.id ? styles.active : ''}`}
                                     onClick={() => {
-                                        setSelectedConvId(null);
-                                        router.push('/tenant/messages');
+                                        setSelectedConvId(conv.id);
+                                        router.push(`/tenant/messages?id=${conv.id}`);
                                     }}
                                 >
-                                    <ArrowLeft size={24} />
-                                </button>
-                                <div className={styles.headerAvatar}>
-                                    {activeConversation.other_participant?.avatar_url ? (
-                                        <img src={activeConversation.other_participant.avatar_url} alt={participantName} />
-                                    ) : (
-                                        <span>{participantName.charAt(0).toUpperCase()}</span>
-                                    )}
-                                </div>
-                                <div className={styles.headerText}>
-                                    <div className={styles.headerNameRow}>
-                                        <span className={styles.headerName}>{participantName}</span>
-                                        <span className={styles.headerRole}>{roleLabel}</span>
-                                    </div>
-                                    <div className={styles.headerMeta}>
-                                        <span className={styles.headerDetail}>
-                                            {activeConversation.listing?.title || 'Direct Message'}
-                                        </span>
-                                        {unitLabel ? (
-                                            <span className={styles.unitBadge}>
-                                                {unitLabel}{propertyLabel ? ` • ${propertyLabel}` : ''}
-                                            </span>
+                                    <div className={styles.avatar}>
+                                        {conv.other_participant?.avatar_url ? (
+                                            <img src={conv.other_participant.avatar_url} alt="Avatar" />
                                         ) : (
-                                            <span className={styles.unitBadgeMuted}>No unit on file</span>
+                                            <span>{conv.other_participant?.full_name?.charAt(0).toUpperCase() || '?'}</span>
                                         )}
                                     </div>
-                                </div>
-                            </div>
-                            <div className={styles.headerActions} ref={menuRef}>
-                                <button
-                                    className={styles.iconButton}
-                                    onClick={() => setIsUnitMapOpen(true)}
-                                    title="Open unit map"
-                                >
-                                    <MapPin size={18} />
-                                </button>
-                                <button
-                                    className={styles.iconButton}
-                                    onClick={() => setIsMenuOpen(prev => !prev)}
-                                    title="More"
-                                >
-                                    <MoreVertical size={18} />
-                                </button>
-                                {isMenuOpen ? (
-                                    <div className={styles.menu}>
-                                        <button
-                                            className={styles.menuItem}
-                                            onClick={() => {
-                                                setIsMenuOpen(false);
-                                                setIsUnitModalOpen(true);
-                                            }}
-                                            disabled={!participantUnit}
-                                        >
-                                            View unit details
-                                        </button>
-                                        <button
-                                            className={styles.menuItem}
-                                            onClick={() => {
-                                                setIsMenuOpen(false);
-                                                setIsUnitMapOpen(true);
-                                            }}
-                                        >
-                                            Open unit map
-                                        </button>
-                                        <button
-                                            className={styles.menuItem}
-                                            onClick={() => {
-                                                setIsMenuOpen(false);
-                                                setSelectedConvId(null);
-                                                router.push('/tenant/messages');
-                                            }}
-                                        >
-                                            Close chat
-                                        </button>
-                                    </div>
-                                ) : null}
-                            </div>
-                        </div>
-
-                        <div className={styles.messageList} ref={messageListRef}>
-                            {msgLoading ? (
-                                <div style={{ textAlign: 'center', padding: '2rem', color: '#94a3b8' }}>Loading messages...</div>
-                            ) : messages.length === 0 ? (
-                                <div style={{ textAlign: 'center', padding: '2rem', color: '#94a3b8' }}>
-                                    No messages yet. Say hello!
-                                </div>
-                            ) : (
-                                messages.map(msg => {
-                                    const isMe = msg.sender_id === currentUser?.id;
-                                    return (
-                                        <div
-                                            key={msg.id}
-                                            className={`${styles.messageGroup} ${isMe ? styles.sent : styles.received}`}
-                                            data-message-id={msg.id}
-                                        >
-                                            <div className={styles.messageBubble}>
-                                                {msg.content}
-                                            </div>
-                                            <div className={styles.messageMeta}>
-                                                <span className={styles.messageTime}>
-                                                    {new Date(msg.created_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
-                                                </span>
-                                                {isMe ? (() => {
-                                                    const status = getMessageStatus(msg);
-                                                    return (
-                                                        <span className={styles.messageStatus}>
-                                                            {renderStatusIcon(status)}
-                                                            <span>{status}</span>
-                                                        </span>
-                                                    );
-                                                })() : null}
-                                            </div>
+                                    <div className={styles.cardContent}>
+                                        <div className={styles.cardTop}>
+                                            <span className={styles.name}>{conv.other_participant?.full_name || 'Unknown'}</span>
+                                            <span className={styles.time}>{new Date(conv.updated_at).toLocaleDateString()}</span>
                                         </div>
-                                    );
-                                })
-                            )}
-                            <div ref={messagesEndRef} />
-                        </div>
-
-                        <div className={styles.inputArea}>
-                            <form className={styles.inputForm} onSubmit={handleSendMessage}>
-                                <textarea
-                                    className={styles.messageInput}
-                                    placeholder="Type a message..."
-                                    rows={1}
-                                    value={newMessage}
-                                    onChange={e => setNewMessage(e.target.value)}
-                                    onKeyDown={e => {
-                                        if (e.key === 'Enter' && !e.shiftKey) {
-                                            e.preventDefault();
-                                            handleSendMessage(e);
-                                        }
-                                    }}
-                                />
-                                <button
-                                    type="submit"
-                                    className={styles.sendButton}
-                                    disabled={!newMessage.trim()}
-                                >
-                                    <Send size={18} />
-                                </button>
-                            </form>
-                        </div>
-                    </>
-                ) : (
-                    <div className={styles.emptyState}>
-                        <div className={styles.emptyIcon}>
-                            <MessageSquare size={32} />
-                        </div>
-                        <h3>Your Messages</h3>
-                        <p>Select a conversation from the sidebar to start chatting.</p>
+                                        <div className={styles.listingTitle}>
+                                            {conv.listing?.title || 'Direct Message'}
+                                        </div>
+                                        <div className={styles.lastMessage}>
+                                            Click to view chat
+                                        </div>
+                                    </div>
+                                </div>
+                            ))
+                        )}
                     </div>
-                )}
+                </div>
+
+                {/* Chat Area */}
+                <div className={`${styles.chatArea} ${!selectedConvId ? styles.hidden : ''} md:flex`}>
+                    {selectedConvId && activeConversation ? (
+                        <>
+                            <div className={styles.chatHeader}>
+                                <div className={styles.chatHeaderInfo}>
+                                    <button
+                                        className={styles.backButton}
+                                        onClick={() => {
+                                            setSelectedConvId(null);
+                                            router.push('/tenant/messages');
+                                        }}
+                                    >
+                                        <ArrowLeft size={24} />
+                                    </button>
+                                    <div className={styles.headerAvatar}>
+                                        {activeConversation.other_participant?.avatar_url ? (
+                                            <img src={activeConversation.other_participant.avatar_url} alt={participantName} />
+                                        ) : (
+                                            <span>{participantName.charAt(0).toUpperCase()}</span>
+                                        )}
+                                    </div>
+                                    <div className={styles.headerText}>
+                                        <div className={styles.headerNameRow}>
+                                            <span className={styles.headerName}>{participantName}</span>
+                                            <span className={styles.headerRole}>{roleLabel}</span>
+                                        </div>
+                                        <div className={styles.headerMeta}>
+                                            <span className={styles.headerDetail}>
+                                                {activeConversation.listing?.title || 'Direct Message'}
+                                            </span>
+                                            {unitLabel ? (
+                                                <span className={styles.unitBadge}>
+                                                    {unitLabel}{propertyLabel ? ` • ${propertyLabel}` : ''}
+                                                </span>
+                                            ) : (
+                                                <span className={styles.unitBadgeMuted}>No unit on file</span>
+                                            )}
+                                        </div>
+                                    </div>
+                                </div>
+                                <div className={styles.headerActions} ref={menuRef}>
+                                    <button
+                                        className={styles.iconButton}
+                                        onClick={() => setIsUnitMapOpen(true)}
+                                        title="Open unit map"
+                                    >
+                                        <MapPin size={18} />
+                                    </button>
+                                    <button
+                                        className={styles.iconButton}
+                                        onClick={() => setIsMenuOpen(prev => !prev)}
+                                        title="More"
+                                    >
+                                        <MoreVertical size={18} />
+                                    </button>
+                                    {isMenuOpen ? (
+                                        <div className={styles.menu}>
+                                            <button
+                                                className={styles.menuItem}
+                                                onClick={() => {
+                                                    setIsMenuOpen(false);
+                                                    setIsUnitModalOpen(true);
+                                                }}
+                                                disabled={!participantUnit}
+                                            >
+                                                View unit details
+                                            </button>
+                                            <button
+                                                className={styles.menuItem}
+                                                onClick={() => {
+                                                    setIsMenuOpen(false);
+                                                    setIsUnitMapOpen(true);
+                                                }}
+                                            >
+                                                Open unit map
+                                            </button>
+                                            <button
+                                                className={styles.menuItem}
+                                                onClick={() => {
+                                                    setIsMenuOpen(false);
+                                                    setSelectedConvId(null);
+                                                    router.push('/tenant/messages');
+                                                }}
+                                            >
+                                                Close chat
+                                            </button>
+                                        </div>
+                                    ) : null}
+                                </div>
+                            </div>
+
+                            <div className={styles.messageList} ref={messageListRef}>
+                                {msgLoading ? (
+                                    <div style={{ textAlign: 'center', padding: '2rem', color: '#94a3b8' }}>Loading messages...</div>
+                                ) : messages.length === 0 ? (
+                                    <div style={{ textAlign: 'center', padding: '2rem', color: '#94a3b8' }}>
+                                        No messages yet. Say hello!
+                                    </div>
+                                ) : (
+                                    messages.map(msg => {
+                                        const isMe = msg.sender_id === currentUser?.id;
+                                        return (
+                                            <div
+                                                key={msg.id}
+                                                className={`${styles.messageGroup} ${isMe ? styles.sent : styles.received}`}
+                                                data-message-id={msg.id}
+                                            >
+                                                <div className={styles.messageBubble}>
+                                                    {msg.content}
+                                                </div>
+                                                <div className={styles.messageMeta}>
+                                                    <span className={styles.messageTime}>
+                                                        {new Date(msg.created_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                                                    </span>
+                                                    {isMe ? (() => {
+                                                        const status = getMessageStatus(msg);
+                                                        return (
+                                                            <span className={styles.messageStatus}>
+                                                                {renderStatusIcon(status)}
+                                                                <span>{status}</span>
+                                                            </span>
+                                                        );
+                                                    })() : null}
+                                                </div>
+                                            </div>
+                                        );
+                                    })
+                                )}
+                                <div ref={messagesEndRef} />
+                            </div>
+
+                            <div className={styles.inputArea}>
+                                <form className={styles.inputForm} onSubmit={handleSendMessage}>
+                                    <textarea
+                                        className={styles.messageInput}
+                                        placeholder="Type a message..."
+                                        rows={1}
+                                        value={newMessage}
+                                        onChange={e => setNewMessage(e.target.value)}
+                                        onKeyDown={e => {
+                                            if (e.key === 'Enter' && !e.shiftKey) {
+                                                e.preventDefault();
+                                                handleSendMessage(e);
+                                            }
+                                        }}
+                                    />
+                                    <button
+                                        type="submit"
+                                        className={styles.sendButton}
+                                        disabled={!newMessage.trim()}
+                                    >
+                                        <Send size={18} />
+                                    </button>
+                                </form>
+                            </div>
+                        </>
+                    ) : (
+                        <div className={styles.emptyState}>
+                            <div className={styles.emptyIcon}>
+                                <MessageSquare size={32} />
+                            </div>
+                            <h3>Your Messages</h3>
+                            <p>Select a conversation from the sidebar to start chatting.</p>
+                        </div>
+                    )}
                 </div>
             </div>
             {isUnitModalOpen ? (

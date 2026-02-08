@@ -248,6 +248,7 @@ CREATE TABLE public.property_knowledge_base (
   content text NOT NULL,
   created_at timestamp with time zone DEFAULT timezone('utc'::text, now()),
   updated_at timestamp with time zone DEFAULT timezone('utc'::text, now()),
+  embedding USER-DEFINED,
   CONSTRAINT property_knowledge_base_pkey PRIMARY KEY (id),
   CONSTRAINT property_knowledge_base_property_id_fkey FOREIGN KEY (property_id) REFERENCES public.properties(id)
 );
