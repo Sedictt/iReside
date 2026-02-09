@@ -49,33 +49,22 @@ export default function ConciergeModal({ isOpen, onClose, propertyId, propertyNa
         if (!newItem.topic || !newItem.content) return;
         setIsAdding(true);
 
-        try {
-            const response = await fetch('/api/ai/concierge/knowledge', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({
-                    propertyId,
-                    category: newItem.category,
-                    topic: newItem.topic,
-                    content: newItem.content,
-                }),
-            });
+        const { data, error } = await supabase
+            .from('property_knowledge_base')
+            .insert({
+                property_id: propertyId,
+                category: newItem.category,
+                topic: newItem.topic,
+                content: newItem.content
+            })
+            .select()
+            .single();
 
-            if (!response.ok) {
-                const errorData = await response.json().catch(() => ({}));
-                console.error('Knowledge add error:', errorData?.detail || errorData?.error || response.statusText);
-                alert(`Failed to add knowledge item: ${errorData?.detail || errorData?.error || response.statusText}`);
-                return;
-            }
-
-            const data = await response.json();
-            if (data?.item) {
-                setItems([data.item, ...items]);
-                setNewItem({ category: 'General', topic: '', content: '' });
-            }
-        } finally {
-            setIsAdding(false);
+        if (data) {
+            setItems([data, ...items]);
+            setNewItem({ category: 'General', topic: '', content: '' });
         }
+        setIsAdding(false);
     };
 
     const handleDelete = async (id: string) => {

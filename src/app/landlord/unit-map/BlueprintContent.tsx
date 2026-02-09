@@ -1,7 +1,6 @@
 "use client";
 
 import { useCallback, useMemo, useState, useEffect } from "react";
-import { useSearchParams } from "next/navigation";
 import { Plus, Building, MapPin, ChevronLeft, Loader2, Home } from "lucide-react";
 import { createClient } from "@/utils/supabase/client";
 import VisualBuilder from "@/components/landlord/VisualBuilder";
@@ -31,12 +30,7 @@ export default function BlueprintContent() {
     const [selectedProperty, setSelectedProperty] = useState<PropertyRow | null>(null);
     const [isLoading, setIsLoading] = useState(true);
     const [isAddingProperty, setIsAddingProperty] = useState(false);
-    const [embedProperty, setEmbedProperty] = useState<PropertyRow | null>(null);
-    const [isEmbedLoading, setIsEmbedLoading] = useState(false);
     const supabase = useMemo(() => createClient(), []);
-    const searchParams = useSearchParams();
-    const isEmbed = searchParams.get("embed") === "1";
-    const embedPropertyId = searchParams.get("propertyId");
 
     const fetchProperties = useCallback(async () => {
         setIsLoading(true);
@@ -56,47 +50,11 @@ export default function BlueprintContent() {
     }, [supabase]);
 
     useEffect(() => {
-        if (isEmbed) return;
         const id = requestAnimationFrame(() => {
             void fetchProperties();
         });
         return () => cancelAnimationFrame(id);
-    }, [fetchProperties, isEmbed]);
-
-    useEffect(() => {
-        if (!isEmbed) return;
-        if (!embedPropertyId) {
-            setEmbedProperty(null);
-            return;
-        }
-
-        let isActive = true;
-        setIsEmbedLoading(true);
-
-        const fetchEmbedProperty = async () => {
-            const { data, error } = await supabase
-                .from('properties')
-                .select('*, units(*)')
-                .eq('id', embedPropertyId)
-                .maybeSingle();
-
-            if (!isActive) return;
-
-            if (error || !data) {
-                setEmbedProperty(null);
-            } else {
-                setEmbedProperty(data as PropertyRow);
-            }
-
-            setIsEmbedLoading(false);
-        };
-
-        void fetchEmbedProperty();
-
-        return () => {
-            isActive = false;
-        };
-    }, [isEmbed, embedPropertyId, supabase]);
+    }, [fetchProperties]);
 
     async function handleAddProperty(e: React.FormEvent<HTMLFormElement>) {
         e.preventDefault();
@@ -119,37 +77,6 @@ export default function BlueprintContent() {
             setProperties([...properties, { ...data[0], units: [] }]);
             setIsAddingProperty(false);
         }
-    }
-
-    if (isEmbed) {
-        if (isEmbedLoading) {
-            return (
-                <div className={styles.loadingState}>
-                    <Loader2 className={styles.spinner} />
-                    <p>Loading unit map...</p>
-                </div>
-            );
-        }
-
-        if (!embedProperty) {
-            return (
-                <div className={styles.loadingState}>
-                    <p>No unit map available.</p>
-                </div>
-            );
-        }
-
-        return (
-            <div className={styles.embedContainer}>
-                <div className={styles.embedBuilder}>
-                    <VisualBuilder
-                        propertyId={embedProperty.id}
-                        initialUnits={embedProperty.units ?? []}
-                        readOnly
-                    />
-                </div>
-            </div>
-        );
     }
 
     if (isLoading) {

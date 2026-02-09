@@ -9,10 +9,14 @@ import {
     AlertTriangle,
     CheckCircle2,
     Clock,
+    Sparkles,
+    BrainCircuit,
+    DollarSign,
     Hammer,
     MapPin,
     Calendar,
-    User
+    User,
+    ArrowRight
 } from "lucide-react";
 
 type MaintenanceRequest = {
@@ -25,6 +29,14 @@ type MaintenanceRequest = {
     property_id: string;
     unit_id: string | null;
     tenant_id: string | null;
+
+    // AI Fields
+    ai_category?: string;
+    ai_severity?: string;
+    ai_summary?: string;
+    ai_suggested_action?: string;
+    ai_estimated_cost?: string;
+    ai_confidence?: number;
 
     // Joined fields
     properties?: {
@@ -48,6 +60,7 @@ export default function MaintenancePage() {
     const [loading, setLoading] = useState(true);
     const [filter, setFilter] = useState<FilterStatus>('all');
     const [selectedRequest, setSelectedRequest] = useState<MaintenanceRequest | null>(null);
+    const [analyzingId, setAnalyzingId] = useState<string | null>(null);
 
     const router = useRouter();
     const supabase = createClient();
@@ -80,6 +93,63 @@ export default function MaintenancePage() {
             console.error(err);
         } finally {
             setLoading(false);
+        }
+    }
+
+    async function handleAnalyze(request: MaintenanceRequest) {
+        setAnalyzingId(request.id);
+
+        try {
+            // 1. Call AI API
+            const response = await fetch('/api/ai/analyze-maintenance', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    description: `${request.title}: ${request.description}`,
+                    image: null // Add image handling if needed later
+                })
+            });
+
+            const aiData = await response.json();
+
+            if (!response.ok) throw new Error(aiData.error || 'Analysis failed');
+
+            // 2. Update Database
+            const { error } = await supabase
+                .from('maintenance_requests')
+                .update({
+                    ai_category: aiData.category,
+                    ai_severity: aiData.severity,
+                    ai_summary: aiData.summary,
+                    ai_suggested_action: aiData.action,
+                    ai_estimated_cost: aiData.estimatedCost,
+                    ai_confidence: aiData.confidence
+                })
+                .eq('id', request.id);
+
+            if (error) throw error;
+
+            console.log("Database updated successfully");
+
+            // 3. Update Local State
+            const updatedRequest = {
+                ...request,
+                ai_category: aiData.category,
+                ai_severity: aiData.severity,
+                ai_summary: aiData.summary,
+                ai_suggested_action: aiData.action,
+                ai_estimated_cost: aiData.estimatedCost,
+                ai_confidence: aiData.confidence
+            };
+
+            setRequests(prev => prev.map(r => r.id === request.id ? updatedRequest : r));
+            setSelectedRequest(updatedRequest);
+
+        } catch (err) {
+            console.error('AI Analysis failed:', err);
+            alert('Failed to analyze request. Please try again.');
+        } finally {
+            setAnalyzingId(null);
         }
     }
 
@@ -139,9 +209,11 @@ export default function MaintenancePage() {
                         filteredRequests.map(req => (
                             <div
                                 key={req.id}
-                                className={
-                                    `${styles.requestCard} ${selectedRequest?.id === req.id ? styles.selected : ''}`
-                                }
+                                className={`
+                                    ${styles.requestCard} 
+                                    ${selectedRequest?.id === req.id ? styles.selected : ''}
+                                    ${req.ai_severity ? styles[`severity-${req.ai_severity.toLowerCase()}`] : ''}
+                                `}
                                 onClick={() => setSelectedRequest(req)}
                             >
                                 <div className={styles.cardHeader}>
@@ -157,6 +229,12 @@ export default function MaintenancePage() {
                                     <span className={`${styles.statusBadge} ${styles[req.status]}`}>
                                         {req.status.replace('_', ' ')}
                                     </span>
+                                    {req.ai_category && (
+                                        <span className={styles.aiBadge}>
+                                            <Sparkles size={12} />
+                                            {req.ai_category}
+                                        </span>
+                                    )}
                                 </div>
                             </div>
                         ))
@@ -178,6 +256,22 @@ export default function MaintenancePage() {
                                 </div>
                             </div>
                             <div className={styles.detailActions}>
+                                {!selectedRequest.ai_summary && (
+                                    <button
+                                        className={styles.actionBtnPrimary}
+                                        onClick={() => handleAnalyze(selectedRequest)}
+                                        disabled={analyzingId === selectedRequest.id}
+                                    >
+                                        {analyzingId === selectedRequest.id ? (
+                                            <>Analyzing...</>
+                                        ) : (
+                                            <>
+                                                <Sparkles size={18} />
+                                                Analyze with AI
+                                            </>
+                                        )}
+                                    </button>
+                                )}
                                 <button className={styles.actionBtnSecondary}>
                                     Contact Tenant
                                 </button>
@@ -185,6 +279,66 @@ export default function MaintenancePage() {
                         </div>
 
                         <div className={styles.detailContent}>
+                            {/* AI Insights Panel */}
+                            {selectedRequest.ai_summary ? (
+                                <div className={styles.aiSection}>
+                                    <div className={styles.aiHeader}>
+                                        <div className={styles.aiTitle}>
+                                            <BrainCircuit size={20} />
+                                            AI Assessment
+                                        </div>
+                                        {selectedRequest.ai_confidence && (
+                                            <div className={styles.confidenceScore}>
+                                                {Math.round(selectedRequest.ai_confidence * 100)}% Confidence
+                                            </div>
+                                        )}
+                                    </div>
+                                    <div className={styles.aiBody}>
+                                        <div className={styles.leftCol}>
+                                            <div className={styles.aiField}>
+                                                <span className={styles.aiLabel}>Summary</span>
+                                                <p className={styles.aiValue}>{selectedRequest.ai_summary}</p>
+                                            </div>
+                                            <div className={styles.aiField}>
+                                                <span className={styles.aiLabel}>Recommended Action</span>
+                                                <div className={styles.aiValue} style={{ display: 'flex', alignItems: 'flex-start', gap: '0.5rem' }}>
+                                                    <ArrowRight size={16} style={{ marginTop: '4px', color: '#6366f1' }} />
+                                                    {selectedRequest.ai_suggested_action}
+                                                </div>
+                                            </div>
+                                        </div>
+                                        <div className={styles.rightCol}>
+                                            <div className={styles.aiField}>
+                                                <span className={styles.aiLabel}>Severity Level</span>
+                                                <span className={`${styles.severityTag} ${styles[selectedRequest.ai_severity?.toLowerCase() || 'medium']}`}>
+                                                    {selectedRequest.ai_severity}
+                                                </span>
+                                            </div>
+                                            <div className={styles.aiField}>
+                                                <span className={styles.aiLabel}>Category</span>
+                                                <div className={styles.aiValue}>{selectedRequest.ai_category}</div>
+                                            </div>
+                                            <div className={styles.aiField}>
+                                                <span className={styles.aiLabel}>Estimated Cost</span>
+                                                <div className={styles.aiValue} style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', fontWeight: 600 }}>
+                                                    <DollarSign size={16} />
+                                                    {selectedRequest.ai_estimated_cost}
+                                                </div>
+                                            </div>
+                                        </div>
+                                    </div>
+                                </div>
+                            ) : analyzingId === selectedRequest.id && (
+                                <div className={styles.aiSection} style={{ minHeight: '200px', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                                    <div style={{ textAlign: 'center' }}>
+                                        <div className={styles.aiPulse}>
+                                            <BrainCircuit size={24} />
+                                        </div>
+                                        <p style={{ marginTop: '1rem', color: '#64748b' }}>AI is analyzing the report...</p>
+                                    </div>
+                                </div>
+                            )}
+
                             <div className={styles.mainGrid}>
                                 <div className={styles.requestSection}>
                                     <h3 className={styles.sectionTitle}>Request Details</h3>

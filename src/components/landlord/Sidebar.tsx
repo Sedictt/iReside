@@ -1,84 +1,260 @@
 "use client";
 
-import { LayoutDashboard, Users, FileText, Settings, ArrowUpFromLine, Map, Building } from "lucide-react";
+import { useState, useEffect } from "react";
+
+import {
+    LayoutDashboard,
+    Users,
+    FileText,
+    Settings,
+    LogOut,
+    Map,
+    Building,
+    BarChart3,
+    Receipt,
+    CheckSquare,
+    Wallet,
+    HelpCircle,
+    Globe,
+    Bell,
+    Wrench,
+    ChevronDown,
+    LayoutList,
+    Home,
+    UserCheck,
+    BadgeDollarSign,
+    LifeBuoy,
+    MessageSquare
+} from "lucide-react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
+import styles from "./Sidebar.module.css";
 
-export default function Sidebar() {
+export default function Sidebar({ inquiryCount }: { inquiryCount?: number }) {
     const pathname = usePathname();
+    const [internalCount, setInternalCount] = useState(0);
 
-    const isActive = (path: string) => pathname === path;
+    // Use passed prop if available, otherwise use internal state
+    const countToDisplay = inquiryCount !== undefined ? inquiryCount : internalCount;
+
+    const isActive = (path: string) => pathname === path || pathname.startsWith(path + '/');
+
+    useEffect(() => {
+        // Only fetch internally if prop is not provided
+        if (inquiryCount === undefined) {
+            fetchNewInquiriesCount();
+            const interval = setInterval(fetchNewInquiriesCount, 30000);
+            return () => clearInterval(interval);
+        }
+    }, [inquiryCount]);
+
+    async function fetchNewInquiriesCount() {
+        try {
+            const { createClient } = await import('@/utils/supabase/client');
+            const supabase = createClient();
+
+            const { data: { user } } = await supabase.auth.getUser();
+            if (!user) return;
+
+            const { count } = await supabase
+                .from('listing_inquiries')
+                .select('*', { count: 'exact', head: true })
+                .eq('status', 'new');
+
+            setInternalCount(count || 0);
+        } catch (err) {
+            console.error('Error fetching inquiry count:', err);
+        }
+    }
+
 
     return (
-        <aside className="glass" style={{ width: '280px', borderRight: '1px solid var(--surface-border)', padding: '1.5rem', display: 'flex', flexDirection: 'column' }}>
-            <div style={{ fontWeight: 700, fontSize: '1.25rem', marginBottom: '2rem', display: 'flex', alignItems: 'center', gap: '0.75rem' }}>
-                <div style={{ width: '2rem', height: '2rem', background: 'var(--success)', borderRadius: '6px' }}></div>
-                Landlord Pro
+        <aside className={styles.sidebar}>
+            {/* Logo Section */}
+            <div className={styles.logoSection}>
+                <div className={styles.logo}>
+                    <div className={styles.logoIcon}>
+                        <Building size={20} />
+                    </div>
+                    <div className={styles.logoText}>
+                        <span className={styles.logoTitle}>LANDLORD</span>
+                        <span className={styles.logoSubtitle}>Property Management</span>
+                    </div>
+                </div>
             </div>
-            <nav style={{ flex: 1, display: 'flex', flexDirection: 'column', gap: '0.5rem' }}>
-                <NavItem icon={<LayoutDashboard size={20} />} label="Dashboard" href="/landlord/dashboard" active={isActive("/landlord/dashboard")} />
-                <NavItem icon={<Map size={20} />} label="Blueprint" href="/landlord/blueprint" active={isActive("/landlord/blueprint")} />
-                <NavItem icon={<Building size={20} />} label="Properties" href="/landlord/properties" active={isActive("/landlord/properties")} />
-                <NavItem icon={<Users size={20} />} label="Tenants" href="/landlord/tenants" active={isActive("/landlord/tenants")} />
-                <NavItem icon={<FileText size={20} />} label="Documents" href="/landlord/documents" active={isActive("/landlord/documents")} />
-                <NavItem icon={<Settings size={20} />} label="Settings" href="/landlord/settings" active={isActive("/landlord/settings")} />
+
+            {/* Main Menu */}
+            {/* Main Menu */}
+            <nav className={styles.nav}>
+                <NavSection label="MENU" icon={<LayoutList size={16} />}>
+                    <NavItem
+                        icon={<LayoutDashboard size={20} />}
+                        label="Dashboard"
+                        href="/landlord/dashboard"
+                        active={isActive("/landlord/dashboard")}
+                    />
+                    <NavItem
+                        icon={<CheckSquare size={20} />}
+                        label="To Do List"
+                        href="/landlord/tasks"
+                        active={isActive("/landlord/tasks")}
+                    />
+                </NavSection>
+
+                <NavSection label="PROPERTIES" icon={<Home size={16} />}>
+                    <NavItem
+                        icon={<Building size={20} />}
+                        label="Properties"
+                        href="/landlord/properties"
+                        active={isActive("/landlord/properties")}
+                    />
+                    <NavItem
+                        icon={<Globe size={20} />}
+                        label="Listings"
+                        href="/landlord/listings"
+                        active={isActive("/landlord/listings")}
+                    />
+                    <NavItem
+                        icon={<Map size={20} />}
+                        label="Unit Map"
+                        href="/landlord/unit-map"
+                        active={isActive("/landlord/unit-map")}
+                    />
+                    <NavItem
+                        icon={<Wrench size={20} />}
+                        label="Maintenance"
+                        href="/landlord/maintenance"
+                        active={isActive("/landlord/maintenance")}
+                    />
+                </NavSection>
+
+                <NavSection label="TENANCY" icon={<UserCheck size={16} />}>
+                    <NavItem
+                        icon={<Users size={20} />}
+                        label="Tenants"
+                        href="/landlord/tenants"
+                        active={isActive("/landlord/tenants")}
+                    />
+                    <NavItem
+                        icon={<Bell size={20} />}
+                        label="Requests"
+                        href="/landlord/inquiries"
+                        active={isActive("/landlord/inquiries")}
+                        badge={countToDisplay}
+                    />
+                    <NavItem
+                        icon={<MessageSquare size={20} />}
+                        label="Messages"
+                        href="/landlord/messages"
+                        active={isActive("/landlord/messages")}
+                    />
+                </NavSection>
+
+                <NavSection label="FINANCE" icon={<BadgeDollarSign size={16} />}>
+                    <NavItem
+                        icon={<Wallet size={20} />}
+                        label="Finances"
+                        href="/landlord/finances"
+                        active={isActive("/landlord/finances")}
+                    />
+                    <NavItem
+                        icon={<Receipt size={20} />}
+                        label="Invoices"
+                        href="/landlord/invoices"
+                        active={isActive("/landlord/invoices")}
+                        badge={1}
+                    />
+                    <NavItem
+                        icon={<BarChart3 size={20} />}
+                        label="Statistics"
+                        href="/landlord/statistics"
+                        active={isActive("/landlord/statistics")}
+                    />
+                </NavSection>
+
+                <NavSection label="SUPPORT" icon={<LifeBuoy size={16} />}>
+                    <NavItem
+                        icon={<HelpCircle size={20} />}
+                        label="Help & Center"
+                        href="/landlord/help"
+                        active={isActive("/landlord/help")}
+                    />
+                    <NavItem
+                        icon={<Settings size={20} />}
+                        label="Settings"
+                        href="/landlord/settings"
+                        active={isActive("/landlord/settings")}
+                    />
+                </NavSection>
             </nav>
 
-            <div style={{ marginTop: 'auto', display: 'flex', flexDirection: 'column', gap: '0.75rem' }}>
-                <div style={{ padding: '1rem', background: 'var(--surface)', borderRadius: '12px' }}>
-                    <div style={{ fontSize: '0.875rem', fontWeight: 500 }}>Pro Plan</div>
-                    <div style={{ fontSize: '0.75rem', color: 'var(--muted-foreground)' }}>Expires in 12 days</div>
-                </div>
+            {/* Logout Button */}
+            <div className={styles.footer}>
                 <button
+                    className={styles.logoutBtn}
                     onClick={async () => {
                         const { createClient } = await import('@/utils/supabase/client');
                         const supabase = createClient();
                         await supabase.auth.signOut();
                         window.location.href = '/';
                     }}
-                    style={{
-                        padding: '0.75rem 1rem',
-                        borderRadius: '8px',
-                        cursor: 'pointer',
-                        display: 'flex',
-                        alignItems: 'center',
-                        gap: '0.75rem',
-                        color: '#ef4444',
-                        background: 'rgba(239, 68, 68, 0.05)',
-                        border: 'none',
-                        transition: 'all 0.2s ease',
-                        fontWeight: 600,
-                        width: '100%',
-                        textAlign: 'left'
-                    }}
                 >
-                    <ArrowUpFromLine size={20} style={{ transform: 'rotate(180deg)' }} />
-                    Logout
+                    <LogOut size={20} />
+                    <span>Log Out</span>
                 </button>
             </div>
         </aside>
     );
 }
 
-function NavItem({ icon, label, active = false, href }: { icon: React.ReactNode, label: string, active?: boolean, href: string }) {
-    const style: React.CSSProperties = {
-        padding: '0.75rem 1rem',
-        borderRadius: '8px',
-        cursor: 'pointer',
-        display: 'flex',
-        alignItems: 'center',
-        gap: '0.75rem',
-        color: active ? 'var(--success)' : 'var(--muted-foreground)',
-        background: active ? 'rgba(16, 185, 129, 0.1)' : 'transparent',
-        transition: 'all 0.2s ease',
-        fontWeight: 500,
-        textDecoration: 'none'
-    };
+type NavItemProps = {
+    icon: React.ReactNode;
+    label: string;
+    href: string;
+    active?: boolean;
+    badge?: number;
+};
+
+function NavItem({ icon, label, active = false, href, badge }: NavItemProps) {
+    return (
+        <Link
+            href={href}
+            className={`${styles.navItem} ${active ? styles.active : ''}`}
+            title={label}
+        >
+            <span className={styles.navIcon}>{icon}</span>
+            <span className={styles.navLabel}>{label}</span>
+            {badge !== undefined && badge > 0 && (
+                <span className={styles.badge}>{badge}</span>
+            )}
+        </Link>
+    );
+}
+
+function NavSection({ label, icon, children }: { label: string; icon: React.ReactNode; children: React.ReactNode }) {
+    const [isOpen, setIsOpen] = useState(true);
 
     return (
-        <Link href={href} style={style}>
-            {icon}
-            {label}
-        </Link>
+        <div className={styles.navSection}>
+            <button
+                className={styles.sectionHeader}
+                onClick={() => setIsOpen(!isOpen)}
+                type="button"
+            >
+                <div className={styles.sectionHeaderLeft}>
+                    <span className={styles.sectionIcon}>{icon}</span>
+                    <span className={styles.sectionLabel}>{label}</span>
+                </div>
+                <ChevronDown
+                    size={16}
+                    className={`${styles.sectionChevron} ${!isOpen ? styles.collapsed : ''}`}
+                />
+            </button>
+            <div className={`${styles.sectionContent} ${!isOpen ? styles.hidden : ''}`}>
+                <div className={styles.sectionInner}>
+                    {children}
+                </div>
+            </div>
+        </div>
     );
 }

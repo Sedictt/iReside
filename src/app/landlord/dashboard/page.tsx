@@ -6,10 +6,11 @@ import {
     Building2,
     DollarSign,
     AlertCircle,
-    ArrowUpRight,
-    ArrowDownRight,
-    Clock,
-    Loader2
+    TrendingUp,
+    TrendingDown,
+    Loader2,
+    Filter,
+    MoreHorizontal
 } from "lucide-react";
 import { createClient } from "@/utils/supabase/client";
 import { motion } from "framer-motion";
@@ -28,6 +29,7 @@ type PropertyRow = {
 
 type StatCardProps = {
     icon: React.ReactNode;
+    iconColor: 'blue' | 'green' | 'purple' | 'orange';
     label: string;
     value: string;
     trend: string;
@@ -111,63 +113,58 @@ export default function LandlordDashboard() {
     if (isLoading) {
         return (
             <div className={styles.loadingState}>
-                <Loader2 className={styles.spinner} />
-                <p>Calculating your dashboard...</p>
+                <Loader2 size={32} className={styles.spinner} />
+                <p>Loading dashboard...</p>
             </div>
         );
     }
 
     return (
         <div className={styles.container}>
-            <header className={styles.header}>
-                <div>
-                    <h1 className={styles.title}>Overview</h1>
-                    <p className={styles.subtitle}>Welcome back! Here&apos;s what&apos;s happening today.</p>
-                </div>
-                <div className={styles.dateDisplay}>
-                    <Clock size={16} />
-                    {new Date().toLocaleDateString('en-US', { month: 'long', day: 'numeric', year: 'numeric' })}
-                </div>
-            </header>
-
             {/* KPI Section */}
             <div className={styles.statsGrid}>
                 <StatCard
-                    icon={<DollarSign size={20} />}
-                    label="Monthly Revenue"
-                    value={stats.revenue}
-                    trend="+0%"
-                    positive={true}
-                />
-                <StatCard
-                    icon={<Building2 size={20} />}
-                    label="Occupancy Rate"
-                    value={stats.occupancy}
-                    trend="+0%"
-                    positive={true}
-                />
-                <StatCard
-                    icon={<Users size={20} />}
+                    icon={<Users size={24} />}
+                    iconColor="blue"
                     label="Active Tenants"
                     value={stats.activeTenants}
-                    trend="0%"
+                    trend="+6.5% Since last week"
                     positive={true}
                 />
                 <StatCard
-                    icon={<AlertCircle size={20} />}
+                    icon={<DollarSign size={24} />}
+                    iconColor="green"
+                    label="Revenue"
+                    value={stats.revenue}
+                    trend="-0.10% Since last week"
+                    positive={false}
+                />
+                <StatCard
+                    icon={<Building2 size={24} />}
+                    iconColor="purple"
+                    label="Occupancy"
+                    value={stats.occupancy}
+                    trend="-0.2% Since last week"
+                    positive={false}
+                />
+                <StatCard
+                    icon={<AlertCircle size={24} />}
+                    iconColor="orange"
                     label="Pending Issues"
                     value={stats.pendingRequests}
-                    trend="0"
-                    positive={false}
+                    trend="+11.5% Since last week"
+                    positive={true}
                 />
             </div>
 
             <div className={styles.mainGrid}>
-                {/* Recent Activity/Inquiries */}
+                {/* Recent Inquiries */}
                 <div className={styles.card}>
                     <div className={styles.cardHeader}>
-                        <h2 className={styles.cardTitle}>Recent Inquiries</h2>
-                        <button className={styles.textBtn}>View all</button>
+                        <h2 className={styles.cardTitle}>Recent Requests</h2>
+                        <div className={styles.cardActions}>
+                            <button className={styles.textBtn}>View all</button>
+                        </div>
                     </div>
                     <div className={styles.list}>
                         <InquiryItem
@@ -179,7 +176,7 @@ export default function LandlordDashboard() {
                         <InquiryItem
                             name="Maria Clara"
                             property="Vista Residences"
-                            message="I&apos;d like to ask about the pet policy for the 2BR units."
+                            message="I'd like to ask about the pet policy for the 2BR units."
                             time="5h ago"
                         />
                         <InquiryItem
@@ -191,10 +188,14 @@ export default function LandlordDashboard() {
                     </div>
                 </div>
 
-                {/* Maintenance Alerts */}
+                {/* Alerts & Maintenance */}
                 <div className={styles.card}>
                     <div className={styles.cardHeader}>
                         <h2 className={styles.cardTitle}>Alerts & Maintenance</h2>
+                        <button className={styles.filterBtn}>
+                            <Filter size={14} />
+                            Filter
+                        </button>
                     </div>
                     <div className={styles.list}>
                         <AlertItem
@@ -218,25 +219,116 @@ export default function LandlordDashboard() {
                     </div>
                 </div>
             </div>
+
+            {/* Recent Invoices Table */}
+            <div className={styles.card}>
+                <div className={styles.cardHeader}>
+                    <h2 className={styles.cardTitle}>Recent Invoices</h2>
+                    <div className={styles.cardActions}>
+                        <button className={styles.filterBtn}>
+                            <Filter size={14} />
+                            Filter
+                        </button>
+                        <button className={styles.filterBtn}>
+                            <MoreHorizontal size={14} />
+                        </button>
+                    </div>
+                </div>
+                <div className={styles.tableWrapper}>
+                    <table className={styles.table}>
+                        <thead>
+                            <tr>
+                                <th>No</th>
+                                <th>ID Invoice</th>
+                                <th>Tenant Name</th>
+                                <th>Property</th>
+                                <th>Due Date</th>
+                                <th>Status</th>
+                                <th>Amount</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            <tr>
+                                <td>1</td>
+                                <td>#065499</td>
+                                <td>
+                                    <div className={styles.tableAvatar}>
+                                        <div className={styles.avatar}>E</div>
+                                        Eren Yaeger
+                                    </div>
+                                </td>
+                                <td>Sunset Heights - 302</td>
+                                <td>21/07/2024</td>
+                                <td><span className={`${styles.statusBadge} ${styles.paid}`}>Paid</span></td>
+                                <td>₱8,500</td>
+                            </tr>
+                            <tr>
+                                <td>2</td>
+                                <td>#065500</td>
+                                <td>
+                                    <div className={styles.tableAvatar}>
+                                        <div className={styles.avatar}>L</div>
+                                        Levi Ackerman
+                                    </div>
+                                </td>
+                                <td>Vista Residences - 105</td>
+                                <td>21/07/2024</td>
+                                <td><span className={`${styles.statusBadge} ${styles.pending}`}>Pending</span></td>
+                                <td>₱12,000</td>
+                            </tr>
+                            <tr>
+                                <td>3</td>
+                                <td>#065501</td>
+                                <td>
+                                    <div className={styles.tableAvatar}>
+                                        <div className={styles.avatar}>M</div>
+                                        Mikasa Ackerman
+                                    </div>
+                                </td>
+                                <td>Sunset Heights - 201</td>
+                                <td>15/07/2024</td>
+                                <td><span className={`${styles.statusBadge} ${styles.paid}`}>Paid</span></td>
+                                <td>₱9,500</td>
+                            </tr>
+                            <tr>
+                                <td>4</td>
+                                <td>#065502</td>
+                                <td>
+                                    <div className={styles.tableAvatar}>
+                                        <div className={styles.avatar}>A</div>
+                                        Armin Arlert
+                                    </div>
+                                </td>
+                                <td>Vista Residences - 308</td>
+                                <td>10/07/2024</td>
+                                <td><span className={`${styles.statusBadge} ${styles.overdue}`}>Overdue</span></td>
+                                <td>₱15,000</td>
+                            </tr>
+                        </tbody>
+                    </table>
+                </div>
+            </div>
         </div>
     );
 }
 
-function StatCard({ icon, label, value, trend, positive }: StatCardProps) {
+function StatCard({ icon, iconColor, label, value, trend, positive }: StatCardProps) {
     return (
         <motion.div
             initial={{ opacity: 0, y: 10 }}
             animate={{ opacity: 1, y: 0 }}
             className={styles.statCard}
         >
-            <div className={styles.statIcon}>{icon}</div>
-            <div className={styles.statContent}>
+            <div className={styles.statMain}>
                 <span className={styles.statLabel}>{label}</span>
                 <span className={styles.statValue}>{value}</span>
+                <div className={`${styles.trend} ${positive ? styles.positive : styles.negative}`}>
+                    {positive ? <TrendingUp size={14} /> : <TrendingDown size={14} />}
+                    {trend}
+                </div>
             </div>
-            <div className={`${styles.trend} ${positive ? styles.positive : styles.negative}`}>
-                {positive ? <ArrowUpRight size={14} /> : <ArrowDownRight size={14} />}
-                {trend}
+            <div className={`${styles.statIcon} ${styles[iconColor]}`}>
+                {icon}
             </div>
         </motion.div>
     );
@@ -265,6 +357,10 @@ function AlertItem({ type, title, location, status }: AlertItemProps) {
         info: "#3b82f6"
     };
 
+    const statusClass = type === 'critical' ? styles.urgent :
+        type === 'warning' ? styles.pending :
+            styles.paid;
+
     return (
         <div className={styles.listItem}>
             <div
@@ -274,7 +370,7 @@ function AlertItem({ type, title, location, status }: AlertItemProps) {
             <div className={styles.listContent}>
                 <div className={styles.listMain}>
                     <span className={styles.alertTitle}>{title}</span>
-                    <span className={styles.statusBadge}>{status}</span>
+                    <span className={`${styles.statusBadge} ${statusClass}`}>{status}</span>
                 </div>
                 <p className={styles.location}>{location}</p>
             </div>
