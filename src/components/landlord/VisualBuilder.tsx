@@ -540,6 +540,19 @@ export default function VisualBuilder({
             const unitType = activeType as UnitType;
             const unitNumber = `${finalGhost.y}${Math.floor(finalGhost.x / 2) + 10}`; // Simple generator
 
+            const tempId = `temp-${crypto.randomUUID()}`;
+            const optimisticUnit: Unit = {
+                id: tempId,
+                type: unitType,
+                gridX: finalGhost.x,
+                gridY: finalGhost.y,
+                status: 'vacant',
+                unitNumber,
+                rentAmount: unitType === 'studio' ? 1200 : unitType === '1br' ? 1800 : 2500,
+            };
+
+            setUnits(prev => [...prev, optimisticUnit]);
+
             const { data, error } = await supabase
                 .from('units')
                 .insert([{
@@ -553,19 +566,36 @@ export default function VisualBuilder({
                 }])
                 .select();
 
-            if (data) {
+            if (error) {
+                setUnits(prev => prev.filter(u => u.id !== tempId));
+                return;
+            }
+
+            if (data?.[0]) {
                 const newUnit = data[0];
-                setUnits(prev => [...prev, {
-                    id: newUnit.id,
-                    type: newUnit.unit_type as UnitType,
-                    gridX: newUnit.grid_x,
-                    gridY: newUnit.grid_y,
-                    status: 'vacant',
-                    unitNumber: newUnit.unit_number
-                }]);
+                setUnits(prev => prev.map(u =>
+                    u.id === tempId
+                        ? {
+                            id: newUnit.id,
+                            type: newUnit.unit_type as UnitType,
+                            gridX: newUnit.grid_x,
+                            gridY: newUnit.grid_y,
+                            status: 'vacant',
+                            unitNumber: newUnit.unit_number,
+                            rentAmount: newUnit.rent_amount ?? undefined,
+                        }
+                        : u
+                ));
             }
         } else {
             // UPDATE IN SUPABASE
+            const prevUnit = units.find(u => u.id === active.id);
+            setUnits(prev => prev.map(u =>
+                u.id === active.id
+                    ? { ...u, gridX: finalGhost.x, gridY: finalGhost.y }
+                    : u
+            ));
+
             const { error } = await supabase
                 .from('units')
                 .update({
@@ -574,10 +604,10 @@ export default function VisualBuilder({
                 })
                 .eq('id', active.id);
 
-            if (!error) {
+            if (error && prevUnit) {
                 setUnits(prev => prev.map(u =>
                     u.id === active.id
-                        ? { ...u, gridX: finalGhost.x, gridY: finalGhost.y }
+                        ? { ...u, gridX: prevUnit.gridX, gridY: prevUnit.gridY }
                         : u
                 ));
             }
@@ -813,20 +843,20 @@ export default function VisualBuilder({
                         }}>
                             <span style={{ color: '#64748b', fontSize: '0.65rem', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.05em' }}>Legend</span>
                             <div style={{ display: 'flex', alignItems: 'center', gap: 5 }}>
-                                <div style={{ width: 10, height: 10, borderRadius: 2, background: 'linear-gradient(to bottom, #0f172a, #020617)', border: '1px solid #334155' }} />
-                                <span style={{ color: '#94a3b8', fontSize: '0.7rem' }}>Vacant</span>
+                                <div style={{ width: 10, height: 10, borderRadius: 2, background: 'linear-gradient(to bottom, #3f915f, #0a1d14)', border: '1px solid #1f4d35' }} />
+                                <span style={{ color: '#b7d9c2', fontSize: '0.7rem' }}>Vacant</span>
                             </div>
                             <div style={{ display: 'flex', alignItems: 'center', gap: 5 }}>
-                                <div style={{ width: 10, height: 10, borderRadius: 2, background: 'linear-gradient(to bottom, #451a03, #1e293b)', border: '1px solid #92400e' }} />
-                                <span style={{ color: '#fbbf24', fontSize: '0.7rem' }}>Occupied</span>
+                                <div style={{ width: 10, height: 10, borderRadius: 2, background: 'linear-gradient(to bottom, #5a7fb3, #0c1522)', border: '1px solid #2c4c7a' }} />
+                                <span style={{ color: '#b8c7dd', fontSize: '0.7rem' }}>Occupied</span>
                             </div>
                             <div style={{ display: 'flex', alignItems: 'center', gap: 5 }}>
-                                <div style={{ width: 10, height: 10, borderRadius: 2, background: '#f59e0b', border: '1px solid #b45309' }} />
-                                <span style={{ color: '#fbbf24', fontSize: '0.7rem' }}>Maintenance</span>
+                                <div style={{ width: 10, height: 10, borderRadius: 2, background: '#a34b4b', border: '1px solid #5a2b2b' }} />
+                                <span style={{ color: '#d7b3b3', fontSize: '0.7rem' }}>Maintenance</span>
                             </div>
                             <div style={{ display: 'flex', alignItems: 'center', gap: 5 }}>
-                                <div style={{ width: 10, height: 10, borderRadius: 2, background: '#1e293b', border: '1px solid #ef4444', boxShadow: '0 0 4px rgba(239, 68, 68, 0.4)' }} />
-                                <span style={{ color: '#fca5a5', fontSize: '0.7rem' }}>Near Due</span>
+                                <div style={{ width: 10, height: 10, borderRadius: 2, background: '#b86b3a', border: '1px solid #6a3a1c', boxShadow: '0 0 4px rgba(184, 107, 58, 0.3)' }} />
+                                <span style={{ color: '#e4c0a8', fontSize: '0.7rem' }}>Near Due</span>
                             </div>
                             <div style={{ display: 'flex', alignItems: 'center', gap: 5 }}>
                                 <div style={{ width: 10, height: 10, borderRadius: 2, background: 'linear-gradient(to right, #334155, #475569)', border: '1px solid #475569' }} />
@@ -1209,17 +1239,23 @@ function DraggableUnit({
     const isOccupied = unit.status === 'occupied';
     const isVacant = unit.status === 'vacant';
 
+    const statusTone = unit.status === 'vacant'
+        ? { primary: '#3f915f', dark: '#0a1d14', glow: 'rgba(63, 145, 95, 0.14)' }
+        : unit.status === 'occupied'
+            ? { primary: '#5a7fb3', dark: '#0c1522', glow: 'rgba(90, 127, 179, 0.14)' }
+            : unit.status === 'neardue'
+                ? { primary: '#b86b3a', dark: '#24140c', glow: 'rgba(184, 107, 58, 0.14)' }
+                : { primary: '#a34b4b', dark: '#230d0d', glow: 'rgba(163, 75, 75, 0.14)' };
+
     // Theme Colors
     const bgGradient = isStairs
-        ? 'linear-gradient(to right, #334155, #475569, #334155)' // Industrial metallic
-        : isOccupied
-            ? 'linear-gradient(to bottom, #451a03, #1e293b)' // Warm amber light from top, fading to dark
-            : 'linear-gradient(to bottom, #0f172a, #020617)'; // Cold dark blue
+        ? 'linear-gradient(to right, #334155, #475569, #334155)'
+        : `linear-gradient(to bottom, ${statusTone.primary}, ${statusTone.dark})`;
 
-    const lightCone = isOccupied ? (
+    const lightCone = !isStairs ? (
         <div style={{
             position: 'absolute', top: 0, left: '20%', right: '20%', height: '80%',
-            background: 'conic-gradient(from 180deg at 50% 0%, rgba(251, 191, 36, 0.15) -25deg, transparent 25deg)',
+            background: `conic-gradient(from 180deg at 50% 0%, ${statusTone.glow} -25deg, transparent 25deg)`,
             pointerEvents: 'none', mixBlendMode: 'screen'
         }}></div>
     ) : null;
@@ -1453,11 +1489,11 @@ function DraggableUnit({
                                 position: 'absolute',
                                 inset: 0,
                                 pointerEvents: 'none',
-                                opacity: isOccupied ? 0.9 : 0.65,
+                                opacity: 0.7,
                                 mixBlendMode: 'screen',
                                 background:
-                                    'radial-gradient(ellipse at 50% 0%, rgba(251, 191, 36, 0.18) 0%, rgba(251, 191, 36, 0.06) 35%, rgba(251, 191, 36, 0) 70%),\
-                                     radial-gradient(ellipse at 50% 100%, rgba(99, 102, 241, 0.10) 0%, rgba(99, 102, 241, 0) 60%)'
+                                    `radial-gradient(ellipse at 50% 0%, ${statusTone.glow} 0%, rgba(0, 0, 0, 0) 70%),\
+                                     radial-gradient(ellipse at 50% 100%, rgba(15, 23, 42, 0.2) 0%, rgba(15, 23, 42, 0) 60%)`
                             }}
                         />
                     )}
@@ -1499,9 +1535,9 @@ function DraggableUnit({
                     {!isStairs && (
                         <div style={{
                             position: 'absolute', top: '20%', left: '15%', width: '25%', height: '40%',
-                            background: isOccupied ? '#1e293b' : '#020617',
+                            background: statusTone.dark,
                             border: '2px solid #334155',
-                            boxShadow: isOccupied ? '0 0 10px rgba(251, 191, 36, 0.1)' : 'none'
+                            boxShadow: `0 0 10px ${statusTone.glow}`
                         }}>
                             <div style={{ width: '100%', height: '50%', borderBottom: '1px solid #334155' }}></div>
                         </div>
@@ -1544,11 +1580,11 @@ function DraggableUnit({
                             {unit.status === 'maintenance' && (
                                 <div style={{
                                     position: 'absolute', inset: 0,
-                                    background: 'repeating-linear-gradient(45deg, rgba(234, 179, 8, 0.2), rgba(234, 179, 8, 0.2) 10px, transparent 10px, transparent 20px)',
+                                    background: 'repeating-linear-gradient(45deg, rgba(163, 75, 75, 0.22), rgba(163, 75, 75, 0.22) 10px, transparent 10px, transparent 20px)',
                                     display: 'flex', alignItems: 'center', justifyContent: 'center',
                                     backdropFilter: 'grayscale(100%) blur(1px)' // Dim the room
                                 }}>
-                                    <div style={{ background: '#f59e0b', color: '#000', padding: '2px 8px', borderRadius: 4, fontWeight: 'bold', fontSize: '0.7rem', display: 'flex', alignItems: 'center', gap: 4, transform: 'rotate(-5deg)', boxShadow: '0 4px 10px rgba(0,0,0,0.5)' }}>
+                                    <div style={{ background: '#a34b4b', color: 'white', padding: '2px 8px', borderRadius: 4, fontWeight: 'bold', fontSize: '0.7rem', display: 'flex', alignItems: 'center', gap: 4, transform: 'rotate(-5deg)', boxShadow: '0 4px 10px rgba(0,0,0,0.5)' }}>
                                         <div style={{ width: 8, height: 8, background: 'black', borderRadius: '50%' }}></div>
                                         REPAIR
                                         <div style={{ width: 8, height: 8, background: 'black', borderRadius: '50%' }}></div>
@@ -1560,32 +1596,32 @@ function DraggableUnit({
                             {unit.status === 'neardue' && (
                                 <div style={{
                                     position: 'absolute', inset: 0,
-                                    border: '1px solid #ef4444',
-                                    boxShadow: 'inset 0 0 20px rgba(239, 68, 68, 0.2)',
+                                    border: '1px solid #b86b3a',
+                                    boxShadow: 'inset 0 0 20px rgba(184, 107, 58, 0.2)',
                                     pointerEvents: 'none',
                                     animation: 'pulse-red 2s infinite'
                                 }}>
-                                    <div style={{ position: 'absolute', top: 4, right: 4, background: '#ef4444', color: 'white', borderRadius: '50%', width: 16, height: 16, display: 'flex', alignItems: 'center', justifyContent: 'center', fontWeight: 'bold', fontSize: '0.7rem' }}>!</div>
+                                    <div style={{ position: 'absolute', top: 4, right: 4, background: '#b86b3a', color: 'white', borderRadius: '50%', width: 16, height: 16, display: 'flex', alignItems: 'center', justifyContent: 'center', fontWeight: 'bold', fontSize: '0.7rem' }}>!</div>
                                 </div>
                             )}
 
                             {/* Standard Statuses */}
                             {unit.status === 'occupied' && (
                                 <div style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
-                                    <User size={14} className="text-amber-400" />
+                                    <User size={14} color="#93a9cc" />
                                     <span style={{ fontSize: '0.7rem', color: '#e2e8f0', textShadow: '0 1px 2px black' }}>{unit.tenantName}</span>
                                 </div>
                             )}
 
                             {unit.status === 'vacant' && (
-                                <span style={{ fontSize: '0.65rem', color: '#64748b', fontStyle: 'italic', background: 'rgba(0,0,0,0.3)', padding: '2px 4px', borderRadius: 4 }}>FOR RENT</span>
+                                <span style={{ fontSize: '0.65rem', color: '#b7d9c2', fontStyle: 'italic', background: 'rgba(0,0,0,0.3)', padding: '2px 4px', borderRadius: 4 }}>FOR RENT</span>
                             )}
 
                             {/* Near Due Text */}
                             {unit.status === 'neardue' && (
                                 <div style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
-                                    <User size={14} color="#ef4444" />
-                                    <span style={{ fontSize: '0.7rem', color: '#fca5a5', textShadow: '0 1px 2px black' }}>{unit.tenantName} (Late)</span>
+                                    <User size={14} color="#d8a27a" />
+                                    <span style={{ fontSize: '0.7rem', color: '#e4c0a8', textShadow: '0 1px 2px black' }}>{unit.tenantName} (Late)</span>
                                 </div>
                             )}
                         </div>

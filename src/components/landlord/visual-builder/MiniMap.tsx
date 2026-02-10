@@ -76,9 +76,10 @@ export default function MiniMap({
             const ph = UNIT_HEIGHT * scaleY;
 
             ctx.fillStyle =
-                u.status === "occupied" ? "#b45309" :
-                u.status === "maintenance" ? "#eab308" :
-                u.status === "neardue" ? "#ef4444" :
+                u.status === "vacant" ? "#3f915f" :
+                u.status === "occupied" ? "#5a7fb3" :
+                u.status === "neardue" ? "#b86b3a" :
+                u.status === "maintenance" ? "#a34b4b" :
                 u.type === "stairs" ? "#475569" :
                 "#334155";
             ctx.fillRect(px, py, pw, ph);
