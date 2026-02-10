@@ -1,11 +1,11 @@
 "use client";
-import React, { useState, useRef, useEffect, useCallback } from 'react';
+import React, { useState, useRef, useEffect, useCallback, useMemo } from 'react';
 import { DndContext, useDraggable, useDroppable, DragEndEvent, DragStartEvent, DragMoveEvent, DragOverlay, useSensor, useSensors, PointerSensor } from '@dnd-kit/core';
 import { createPortal } from 'react-dom';
 import { motion, AnimatePresence } from 'framer-motion';
 import { autoUpdate, flip, offset, shift, size, useFloating } from '@floating-ui/react-dom';
 
-import { User, Plus, ArrowUpFromLine, Trash2, X, Save, Pencil, Maximize2, Minimize2, Eye, EyeOff } from 'lucide-react';
+import { User, Plus, ArrowUpFromLine, Trash2, X, Save, Pencil, Maximize2, Minimize2, Eye, EyeOff, AlertTriangle } from 'lucide-react';
 
 // QoL feature imports
 import { useUndoRedo } from './visual-builder/useUndoRedo';
@@ -29,6 +29,12 @@ interface Unit {
     unitNumber?: string;
     rentAmount?: number;
 }
+
+type UnitNote = {
+    id: string;
+    text: string;
+    createdAt: string;
+};
 
 type InitialUnit = {
     id: string;
@@ -130,6 +136,11 @@ export default function VisualBuilder({
     // ═══ QoL: Multi-select ═══
     const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
 
+    // ═══ QoL: Notes & Metadata ═══
+    const [notesByUnit, setNotesByUnit] = useState<Record<string, UnitNote[]>>({});
+    const [noteDraft, setNoteDraft] = useState('');
+    const [lastUpdatedByUnit, setLastUpdatedByUnit] = useState<Record<string, string>>({});
+
     // ═══ QoL: Grid & Snap ═══
     const [showGrid, setShowGrid] = useState(false);
     const [snapToGrid, setSnapToGrid] = useState(true);
@@ -144,6 +155,17 @@ export default function VisualBuilder({
 
     // ═══ QoL: HUD visibility ═══
     const [hudVisible, setHudVisible] = useState(true);
+
+    // ═══ QoL: Filters ═══
+    const [statusFilter, setStatusFilter] = useState<Set<Unit['status']>>(
+        new Set(['vacant', 'occupied', 'maintenance', 'neardue'])
+    );
+    const [floorFilter, setFloorFilter] = useState<Set<number>>(
+        new Set(Array.from({ length: 10 }, (_, i) => i + 1))
+    );
+    const [priceFilter, setPriceFilter] = useState<{ min: string; max: string }>({ min: '', max: '' });
+    const [showStairs, setShowStairs] = useState(true);
+    const [filtersOpen, setFiltersOpen] = useState(false);
 
     // ═══ QoL: Persisted viewport ═══
     usePersistedViewport(propertyId, viewportRef, zoom, setZoom);
@@ -189,6 +211,39 @@ export default function VisualBuilder({
         setUnits(mapInitialUnits(initialUnits));
     }, [initialUnits, readOnly]);
 
+    useEffect(() => {
+        setLastUpdatedByUnit(prev => {
+            const next = { ...prev };
+            let changed = false;
+            for (const unit of units) {
+                if (!next[unit.id]) {
+                    next[unit.id] = new Date().toISOString();
+                    changed = true;
+                }
+            }
+            return changed ? next : prev;
+        });
+    }, [units]);
+
+    useEffect(() => {
+        if (typeof window === 'undefined') return;
+        const key = `unit-notes-${propertyId}`;
+        const stored = window.localStorage.getItem(key);
+        if (stored) {
+            try {
+                setNotesByUnit(JSON.parse(stored));
+            } catch {
+                setNotesByUnit({});
+            }
+        }
+    }, [propertyId]);
+
+    useEffect(() => {
+        if (typeof window === 'undefined') return;
+        const key = `unit-notes-${propertyId}`;
+        window.localStorage.setItem(key, JSON.stringify(notesByUnit));
+    }, [notesByUnit, propertyId]);
+
     // ═══════════════════════════
     //  QoL HELPER FUNCTIONS
     // ═══════════════════════════
@@ -197,6 +252,15 @@ export default function VisualBuilder({
     const pushUndo = useCallback(() => {
         undoRedo.push(JSON.parse(JSON.stringify(units)));
     }, [units, undoRedo]);
+
+    const touchUnits = useCallback((ids: string[]) => {
+        const now = new Date().toISOString();
+        setLastUpdatedByUnit(prev => {
+            const next = { ...prev };
+            ids.forEach((id) => { next[id] = now; });
+            return next;
+        });
+    }, []);
 
     /** Zoom helpers */
     const handleZoomIn = useCallback(() => setZoom(z => Math.min(3, z + 0.15)), []);
@@ -274,8 +338,9 @@ export default function VisualBuilder({
                 ? { ...u, status: mapDbStatusToUi(status) }
                 : u
         ));
+        touchUnits(ids);
         clearSelection();
-    }, [selectedIds, pushUndo, supabase, clearSelection]);
+    }, [selectedIds, pushUndo, supabase, clearSelection, touchUnits]);
 
     /** Duplicate selected units with offset */
     const handleDuplicate = useCallback(async () => {
@@ -312,8 +377,9 @@ export default function VisualBuilder({
             }
         }
         setUnits(prev => [...prev, ...newUnits]);
+        touchUnits(newUnits.map(n => n.id));
         clearSelection();
-    }, [selectedIds, units, pushUndo, supabase, propertyId, clearSelection]);
+    }, [selectedIds, units, pushUndo, supabase, propertyId, clearSelection, touchUnits]);
 
     /** Align selected units to same row (most common gridY) */
     const handleAlignRow = useCallback(async () => {
@@ -332,7 +398,8 @@ export default function VisualBuilder({
         setUnits(prev => prev.map(u =>
             selectedIds.has(u.id) ? { ...u, gridY: targetY } : u
         ));
-    }, [selectedIds, units, pushUndo, supabase]);
+        touchUnits(Array.from(selectedIds));
+    }, [selectedIds, units, pushUndo, supabase, touchUnits]);
 
     /** Distribute selected units evenly along X */
     const handleDistribute = useCallback(async () => {
@@ -353,7 +420,8 @@ export default function VisualBuilder({
         setUnits(prev => prev.map(u =>
             updatedMap.has(u.id) ? { ...u, gridX: updatedMap.get(u.id)! } : u
         ));
-    }, [selectedIds, units, pushUndo, supabase]);
+        touchUnits(Array.from(selectedIds));
+    }, [selectedIds, units, pushUndo, supabase, touchUnits]);
 
     /** Center selected units vertically to median floor */
     const handleCenterVertical = useCallback(async () => {
@@ -370,7 +438,84 @@ export default function VisualBuilder({
         setUnits(prev => prev.map(u =>
             selectedIds.has(u.id) ? { ...u, gridY: median } : u
         ));
-    }, [selectedIds, units, pushUndo, supabase]);
+        touchUnits(Array.from(selectedIds));
+    }, [selectedIds, units, pushUndo, supabase, touchUnits]);
+
+    const handleAddNote = useCallback((unitId: string) => {
+        const text = noteDraft.trim();
+        if (!text) return;
+        setNotesByUnit(prev => {
+            const next = { ...prev };
+            const nextNote: UnitNote = {
+                id: crypto.randomUUID(),
+                text,
+                createdAt: new Date().toISOString(),
+            };
+            next[unitId] = [...(next[unitId] || []), nextNote];
+            return next;
+        });
+        setNoteDraft('');
+    }, [noteDraft]);
+
+    const handleRemoveNote = useCallback((unitId: string, noteId: string) => {
+        setNotesByUnit(prev => {
+            const next = { ...prev };
+            next[unitId] = (next[unitId] || []).filter(n => n.id !== noteId);
+            return next;
+        });
+    }, []);
+
+    const handleNudgeSelected = useCallback(async (dx: number, dy: number) => {
+        if (selectedIds.size === 0) return;
+        const ids = Array.from(selectedIds);
+        const moving = units.filter(u => selectedIds.has(u.id));
+        const stationary = units.filter(u => !selectedIds.has(u.id));
+
+        const nextPositions = new Map<string, { x: number; y: number }>();
+        for (const u of moving) {
+            const nextX = u.gridX + dx;
+            const nextY = u.gridY + dy;
+            if (nextX < 0 || nextY < 1 || nextY > 10) return;
+            nextPositions.set(u.id, { x: nextX, y: nextY });
+        }
+
+        const hasOverlap = (candidate: { id: string; x: number; y: number; width: number }) => {
+            for (const other of stationary) {
+                if (other.gridY !== candidate.y) continue;
+                const otherWidth = unitConfig[other.type].cells;
+                if (candidate.x < other.gridX + otherWidth && candidate.x + candidate.width > other.gridX) {
+                    return true;
+                }
+            }
+            for (const other of moving) {
+                if (other.id === candidate.id) continue;
+                const target = nextPositions.get(other.id)!;
+                if (target.y !== candidate.y) continue;
+                const otherWidth = unitConfig[other.type].cells;
+                if (candidate.x < target.x + otherWidth && candidate.x + candidate.width > target.x) {
+                    return true;
+                }
+            }
+            return false;
+        };
+
+        for (const u of moving) {
+            const target = nextPositions.get(u.id)!;
+            if (hasOverlap({ id: u.id, x: target.x, y: target.y, width: unitConfig[u.type].cells })) return;
+        }
+
+        pushUndo();
+        setUnits(prev => prev.map(u =>
+            selectedIds.has(u.id)
+                ? { ...u, gridX: nextPositions.get(u.id)!.x, gridY: nextPositions.get(u.id)!.y }
+                : u
+        ));
+        for (const u of moving) {
+            const target = nextPositions.get(u.id)!;
+            await supabase.from('units').update({ grid_x: target.x, grid_y: target.y }).eq('id', u.id);
+        }
+        touchUnits(ids);
+    }, [selectedIds, units, pushUndo, supabase, touchUnits]);
 
     /** Pan-to for search highlight */
     const handlePanTo = useCallback((gridX: number, gridY: number) => {
@@ -427,12 +572,29 @@ export default function VisualBuilder({
             if ((e.ctrlKey || e.metaKey) && e.key === 'd') { e.preventDefault(); handleDuplicate(); return; }
             // Ctrl+A → Select all
             if ((e.ctrlKey || e.metaKey) && e.key === 'a') { e.preventDefault(); setSelectedIds(new Set(units.map(u => u.id))); return; }
+            // Arrow keys → Nudge selected
+            if (['ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight'].includes(e.key)) {
+                const step = e.shiftKey ? 2 : 1;
+                const delta = e.key === 'ArrowUp'
+                    ? { dx: 0, dy: step }
+                    : e.key === 'ArrowDown'
+                        ? { dx: 0, dy: -step }
+                        : e.key === 'ArrowLeft'
+                            ? { dx: -step, dy: 0 }
+                            : { dx: step, dy: 0 };
+                handleNudgeSelected(delta.dx, delta.dy);
+                return;
+            }
+            // + / - / 0 → Quick zoom
+            if (e.key === '+' || e.key === '=') { handleZoomIn(); return; }
+            if (e.key === '-') { handleZoomOut(); return; }
+            if (e.key === '0') { handleZoomReset(); return; }
             // Escape → Clear selection / close search
             if (e.key === 'Escape') { clearSelection(); setSearchOpen(false); setSavedViewsOpen(false); return; }
         };
         window.addEventListener('keydown', handler);
         return () => window.removeEventListener('keydown', handler);
-    }, [readOnly, handleZoomIn, handleZoomOut, handleFitToView, handleBulkDelete, handleUndo, handleRedo, handleDuplicate, units, clearSelection]);
+    }, [readOnly, handleZoomIn, handleZoomOut, handleZoomReset, handleFitToView, handleBulkDelete, handleUndo, handleRedo, handleDuplicate, handleNudgeSelected, units, clearSelection]);
 
     // --- Drag Logic ---
 
@@ -586,6 +748,7 @@ export default function VisualBuilder({
                         }
                         : u
                 ));
+                touchUnits([newUnit.id]);
             }
         } else {
             // UPDATE IN SUPABASE
@@ -611,6 +774,7 @@ export default function VisualBuilder({
                         : u
                 ));
             }
+            if (!error) touchUnits([active.id as string]);
         }
     };
 
@@ -618,6 +782,7 @@ export default function VisualBuilder({
         if (readOnly) return;
         const unit = units.find(u => u.id === unitId);
         if (!unit || unit.type === 'stairs') return;
+        setSelectedIds(new Set([unitId]));
         setEditingUnit(unit);
         setEditForm({
             unitNumber: unit.unitNumber || '',
@@ -657,6 +822,7 @@ export default function VisualBuilder({
                     : u
             ));
             setEditingUnit(null);
+            touchUnits([editingUnit.id]);
         }
         setIsSaving(false);
     };
@@ -675,6 +841,61 @@ export default function VisualBuilder({
         }
         setIsSaving(false);
     };
+
+    const validationIssues = useMemo(() => {
+        const issues = new Map<string, string[]>();
+        const addIssue = (id: string, issue: string) => {
+            issues.set(id, [...(issues.get(id) || []), issue]);
+        };
+
+        for (const unit of units) {
+            if (unit.type === 'stairs') continue;
+            if (!unit.unitNumber) addIssue(unit.id, 'Missing unit number');
+            if (!unit.rentAmount) addIssue(unit.id, 'Missing rent amount');
+        }
+
+        for (let i = 0; i < units.length; i++) {
+            for (let j = i + 1; j < units.length; j++) {
+                const a = units[i];
+                const b = units[j];
+                if (a.gridY !== b.gridY) continue;
+                const aWidth = unitConfig[a.type].cells;
+                const bWidth = unitConfig[b.type].cells;
+                const overlap = a.gridX < b.gridX + bWidth && a.gridX + aWidth > b.gridX;
+                if (overlap) {
+                    addIssue(a.id, `Overlaps with ${b.unitNumber || b.id}`);
+                    addIssue(b.id, `Overlaps with ${a.unitNumber || a.id}`);
+                }
+            }
+        }
+
+        return issues;
+    }, [units]);
+
+    const filteredUnits = useMemo(() => {
+        const min = priceFilter.min ? parseFloat(priceFilter.min) : null;
+        const max = priceFilter.max ? parseFloat(priceFilter.max) : null;
+        return units.filter((unit) => {
+            if (unit.type === 'stairs') return showStairs && floorFilter.has(unit.gridY);
+            if (!statusFilter.has(unit.status)) return false;
+            if (!floorFilter.has(unit.gridY)) return false;
+            if (min !== null && (unit.rentAmount ?? 0) < min) return false;
+            if (max !== null && (unit.rentAmount ?? 0) > max) return false;
+            return true;
+        });
+    }, [units, statusFilter, floorFilter, priceFilter, showStairs]);
+
+    const detailUnitId = editingUnit?.id ?? (selectedIds.size === 1 ? Array.from(selectedIds)[0] : null);
+    const detailUnit = detailUnitId ? units.find(u => u.id === detailUnitId) : null;
+    const detailIssues = detailUnitId ? (validationIssues.get(detailUnitId) || []) : [];
+    const detailNotes = detailUnitId ? (notesByUnit[detailUnitId] || []) : [];
+    const detailUpdatedAt = detailUnitId ? lastUpdatedByUnit[detailUnitId] : undefined;
+    const detailLease = detailUnit?.status === 'occupied' ? 'Active' : 'None';
+    const detailRent = detailUnit?.rentAmount ? new Intl.NumberFormat('en-PH', { style: 'currency', currency: 'PHP', maximumFractionDigits: 0 }).format(detailUnit.rentAmount) : 'Not set';
+
+    useEffect(() => {
+        setNoteDraft('');
+    }, [detailUnitId]);
 
     return (
         <DndContext
@@ -716,7 +937,7 @@ export default function VisualBuilder({
                         )}
 
                         <CanvasContent
-                            units={units}
+                            units={filteredUnits}
                             ghost={ghostState}
                             activeId={activeId}
                             readOnly={readOnly}
@@ -729,6 +950,7 @@ export default function VisualBuilder({
                             selectedIds={selectedIds}
                             onToggleSelect={toggleSelect}
                             highlightedUnitId={highlightedUnitId}
+                            validationIssues={validationIssues}
                         />
 
                         {/* Floor Labels */}
@@ -770,7 +992,7 @@ export default function VisualBuilder({
                 {/* ═══ QoL: Mini-Map ═══ */}
                 {hudVisible && (
                     <MiniMap
-                        units={units}
+                        units={filteredUnits}
                         viewportRef={viewportRef}
                         zoom={zoom}
                     />
@@ -829,6 +1051,163 @@ export default function VisualBuilder({
                 {hudVisible && <div style={{ position: 'absolute', bottom: '2rem', left: '2rem', right: '2rem', display: 'flex', justifyContent: 'space-between', alignItems: 'flex-end', zIndex: 60, pointerEvents: 'none' }}>
 
                     <div style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem' }}>
+                        {/* Filters */}
+                        <div style={{ position: 'relative', pointerEvents: 'auto' }}>
+                            <button
+                                type="button"
+                                onClick={() => setFiltersOpen(p => !p)}
+                                style={{
+                                    padding: '0.45rem 0.8rem',
+                                    background: filtersOpen ? 'rgba(37, 99, 235, 0.25)' : 'rgba(15, 23, 42, 0.7)',
+                                    color: filtersOpen ? '#dbeafe' : '#94a3b8',
+                                    borderRadius: 10,
+                                    border: `1px solid ${filtersOpen ? '#60a5fa' : '#334155'}`,
+                                    fontSize: '0.7rem',
+                                    fontWeight: 700,
+                                    cursor: 'pointer'
+                                }}
+                            >
+                                Filters
+                            </button>
+                            {filtersOpen && (
+                                <div style={{
+                                    position: 'absolute',
+                                    bottom: '120%',
+                                    left: 0,
+                                    width: 280,
+                                    padding: '0.75rem',
+                                    background: 'rgba(15, 23, 42, 0.95)',
+                                    borderRadius: 12,
+                                    border: '1px solid #334155',
+                                    boxShadow: '0 14px 30px rgba(0,0,0,0.4)',
+                                    display: 'flex',
+                                    flexDirection: 'column',
+                                    gap: '0.6rem',
+                                    zIndex: 120
+                                }}>
+                                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                                        <div style={{ color: '#64748b', fontSize: '0.65rem', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.05em' }}>Filters</div>
+                                        <div style={{ display: 'flex', gap: 6 }}>
+                                            <button
+                                                type="button"
+                                                onClick={() => setStatusFilter(new Set(['vacant', 'occupied', 'maintenance', 'neardue']))}
+                                                style={{ background: 'transparent', border: '1px solid #334155', color: '#94a3b8', borderRadius: 6, fontSize: '0.65rem', padding: '0.2rem 0.4rem', cursor: 'pointer' }}
+                                            >
+                                                All
+                                            </button>
+                                            <button
+                                                type="button"
+                                                onClick={() => {
+                                                    setStatusFilter(new Set());
+                                                    setFloorFilter(new Set());
+                                                }}
+                                                style={{ background: 'transparent', border: '1px solid #334155', color: '#94a3b8', borderRadius: 6, fontSize: '0.65rem', padding: '0.2rem 0.4rem', cursor: 'pointer' }}
+                                            >
+                                                Clear
+                                            </button>
+                                        </div>
+                                    </div>
+                                    <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6 }}>
+                                        {(['vacant', 'occupied', 'maintenance', 'neardue'] as Unit['status'][]).map((status) => (
+                                            <button
+                                                key={status}
+                                                type="button"
+                                                onClick={() => setStatusFilter(prev => {
+                                                    const next = new Set(prev);
+                                                    if (next.has(status)) next.delete(status); else next.add(status);
+                                                    return next;
+                                                })}
+                                                style={{
+                                                    padding: '0.3rem 0.55rem',
+                                                    borderRadius: 999,
+                                                    border: `1px solid ${statusFilter.has(status) ? '#60a5fa' : '#334155'}`,
+                                                    background: statusFilter.has(status) ? 'rgba(37, 99, 235, 0.2)' : 'rgba(15, 23, 42, 0.6)',
+                                                    color: statusFilter.has(status) ? '#dbeafe' : '#94a3b8',
+                                                    fontSize: '0.65rem',
+                                                    cursor: 'pointer'
+                                                }}
+                                            >
+                                                {status}
+                                            </button>
+                                        ))}
+                                        <button
+                                            type="button"
+                                            onClick={() => setShowStairs(p => !p)}
+                                            style={{
+                                                padding: '0.3rem 0.55rem',
+                                                borderRadius: 999,
+                                                border: `1px solid ${showStairs ? '#60a5fa' : '#334155'}`,
+                                                background: showStairs ? 'rgba(37, 99, 235, 0.2)' : 'rgba(15, 23, 42, 0.6)',
+                                                color: showStairs ? '#dbeafe' : '#94a3b8',
+                                                fontSize: '0.65rem',
+                                                cursor: 'pointer'
+                                            }}
+                                        >
+                                            stairs
+                                        </button>
+                                    </div>
+                                    <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6 }}>
+                                        {Array.from({ length: 10 }, (_, i) => i + 1).map((floor) => (
+                                            <button
+                                                key={floor}
+                                                type="button"
+                                                onClick={() => setFloorFilter(prev => {
+                                                    const next = new Set(prev);
+                                                    if (next.has(floor)) next.delete(floor); else next.add(floor);
+                                                    return next;
+                                                })}
+                                                style={{
+                                                    width: 26,
+                                                    height: 26,
+                                                    borderRadius: 6,
+                                                    border: `1px solid ${floorFilter.has(floor) ? '#60a5fa' : '#334155'}`,
+                                                    background: floorFilter.has(floor) ? 'rgba(37, 99, 235, 0.25)' : 'rgba(15, 23, 42, 0.6)',
+                                                    color: floorFilter.has(floor) ? '#e2e8f0' : '#64748b',
+                                                    fontSize: '0.65rem',
+                                                    cursor: 'pointer'
+                                                }}
+                                            >
+                                                {floor}
+                                            </button>
+                                        ))}
+                                    </div>
+                                    <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
+                                        <input
+                                            type="number"
+                                            value={priceFilter.min}
+                                            onChange={(e) => setPriceFilter(prev => ({ ...prev, min: e.target.value }))}
+                                            placeholder="Min rent"
+                                            style={{
+                                                width: 90,
+                                                padding: '0.35rem 0.5rem',
+                                                background: '#0f172a',
+                                                border: '1px solid #334155',
+                                                borderRadius: 6,
+                                                color: '#e2e8f0',
+                                                fontSize: '0.65rem'
+                                            }}
+                                        />
+                                        <span style={{ color: '#64748b', fontSize: '0.7rem' }}>to</span>
+                                        <input
+                                            type="number"
+                                            value={priceFilter.max}
+                                            onChange={(e) => setPriceFilter(prev => ({ ...prev, max: e.target.value }))}
+                                            placeholder="Max rent"
+                                            style={{
+                                                width: 90,
+                                                padding: '0.35rem 0.5rem',
+                                                background: '#0f172a',
+                                                border: '1px solid #334155',
+                                                borderRadius: 6,
+                                                color: '#e2e8f0',
+                                                fontSize: '0.65rem'
+                                            }}
+                                        />
+                                    </div>
+                                </div>
+                            )}
+                        </div>
+
                         {/* Legend */}
                         <div style={{
                             padding: '0.6rem 0.9rem',
@@ -864,9 +1243,9 @@ export default function VisualBuilder({
                             </div>
                         </div>
 
-                        <div style={{ display: 'flex', gap: '0.5rem', pointerEvents: 'auto' }}>
+                            <div style={{ display: 'flex', gap: '0.5rem', pointerEvents: 'auto' }}>
                             <div style={{ padding: '0.5rem 1rem', background: 'rgba(30, 41, 59, 0.8)', color: 'white', borderRadius: '8px', fontSize: '0.8rem', border: '1px solid #475569' }}>
-                                Ctrl + Scroll to Zoom • Scroll to Pan
+                                Ctrl + Scroll to Zoom • Arrow keys to Nudge
                             </div>
                             <div style={{ padding: '0.5rem 1rem', background: '#1e293b', border: '1px solid #475569', color: 'white', borderRadius: '8px', fontWeight: 'bold' }}>
                                 {Math.round(zoom * 100)}%
@@ -976,6 +1355,95 @@ export default function VisualBuilder({
                                             <div style={{ color: '#64748b', fontSize: '0.7rem', fontWeight: 600, textTransform: 'uppercase', marginBottom: '0.35rem' }}>Position</div>
                                             <div style={{ color: '#94a3b8', fontSize: '0.8rem' }}>Floor {editingUnit.gridY} &bull; Column {editingUnit.gridX}</div>
                                         </div>
+
+                                        {detailUnit && (
+                                            <div style={{ padding: '0.75rem', background: '#0f172a', borderRadius: 8, border: '1px solid #334155', display: 'flex', flexDirection: 'column', gap: '0.6rem' }}>
+                                                <div style={{ color: '#64748b', fontSize: '0.7rem', fontWeight: 600, textTransform: 'uppercase' }}>Details</div>
+                                                <div style={{ color: '#e2e8f0', fontSize: '0.8rem', display: 'grid', gap: 4 }}>
+                                                    <div><span style={{ color: '#94a3b8' }}>Tenant:</span> {detailUnit.tenantName || (detailUnit.status === 'vacant' ? 'Vacant' : 'Unknown')}</div>
+                                                    <div><span style={{ color: '#94a3b8' }}>Lease:</span> {detailLease}</div>
+                                                    <div><span style={{ color: '#94a3b8' }}>Rent:</span> {detailRent}</div>
+                                                    <div><span style={{ color: '#94a3b8' }}>Last updated:</span> {detailUpdatedAt ? new Date(detailUpdatedAt).toLocaleString() : 'Unknown'}</div>
+                                                </div>
+                                            </div>
+                                        )}
+
+                                        {detailUnit && (
+                                            <div style={{ padding: '0.75rem', background: '#0f172a', borderRadius: 8, border: '1px solid #334155', display: 'flex', flexDirection: 'column', gap: '0.6rem' }}>
+                                                <div style={{ color: '#64748b', fontSize: '0.7rem', fontWeight: 600, textTransform: 'uppercase', display: 'flex', alignItems: 'center', gap: 6 }}>
+                                                    <AlertTriangle size={14} color="#f87171" />
+                                                    Validation
+                                                </div>
+                                                {detailIssues.length === 0 ? (
+                                                    <div style={{ color: '#94a3b8', fontSize: '0.75rem' }}>No issues detected.</div>
+                                                ) : (
+                                                    <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
+                                                        {detailIssues.map((issue, index) => (
+                                                            <div key={`${issue}-${index}`} style={{ color: '#fecaca', fontSize: '0.75rem' }}>• {issue}</div>
+                                                        ))}
+                                                    </div>
+                                                )}
+                                            </div>
+                                        )}
+
+                                        {detailUnit && (
+                                            <div style={{ padding: '0.75rem', background: '#0f172a', borderRadius: 8, border: '1px solid #334155', display: 'flex', flexDirection: 'column', gap: '0.6rem' }}>
+                                                <div style={{ color: '#64748b', fontSize: '0.7rem', fontWeight: 600, textTransform: 'uppercase' }}>Notes</div>
+                                                <div style={{ display: 'flex', flexDirection: 'column', gap: 6, maxHeight: 140, overflowY: 'auto' }}>
+                                                    {detailNotes.length === 0 && (
+                                                        <div style={{ color: '#94a3b8', fontSize: '0.75rem' }}>No notes yet.</div>
+                                                    )}
+                                                    {detailNotes.map((note) => (
+                                                        <div key={note.id} style={{ padding: '0.5rem', borderRadius: 6, background: 'rgba(15, 23, 42, 0.7)', border: '1px solid #1f2a44' }}>
+                                                            <div style={{ color: '#e2e8f0', fontSize: '0.75rem', marginBottom: 4 }}>{note.text}</div>
+                                                            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                                                                <span style={{ color: '#64748b', fontSize: '0.65rem' }}>{new Date(note.createdAt).toLocaleString()}</span>
+                                                                <button
+                                                                    type="button"
+                                                                    onClick={() => handleRemoveNote(detailUnit.id, note.id)}
+                                                                    style={{ background: 'transparent', border: 'none', color: '#fca5a5', fontSize: '0.65rem', cursor: 'pointer' }}
+                                                                >
+                                                                    Remove
+                                                                </button>
+                                                            </div>
+                                                        </div>
+                                                    ))}
+                                                </div>
+                                                <div style={{ display: 'flex', gap: 6 }}>
+                                                    <input
+                                                        type="text"
+                                                        value={noteDraft}
+                                                        onChange={(e) => setNoteDraft(e.target.value)}
+                                                        placeholder="Add a note"
+                                                        style={{
+                                                            flex: 1,
+                                                            padding: '0.45rem 0.6rem',
+                                                            background: '#0f172a',
+                                                            border: '1px solid #334155',
+                                                            borderRadius: 6,
+                                                            color: '#e2e8f0',
+                                                            fontSize: '0.75rem'
+                                                        }}
+                                                    />
+                                                    <button
+                                                        type="button"
+                                                        onClick={() => handleAddNote(detailUnit.id)}
+                                                        style={{
+                                                            padding: '0.45rem 0.75rem',
+                                                            background: '#2563eb',
+                                                            border: 'none',
+                                                            borderRadius: 6,
+                                                            color: 'white',
+                                                            fontSize: '0.75rem',
+                                                            fontWeight: 700,
+                                                            cursor: 'pointer'
+                                                        }}
+                                                    >
+                                                        Add
+                                                    </button>
+                                                </div>
+                                            </div>
+                                        )}
                                     </div>
 
                                     {/* Action Buttons */}
@@ -1073,6 +1541,7 @@ function CanvasContent({
     selectedIds,
     onToggleSelect,
     highlightedUnitId,
+    validationIssues,
 }: {
     units: Unit[];
     ghost: GhostState | null;
@@ -1087,6 +1556,7 @@ function CanvasContent({
     selectedIds?: Set<string>;
     onToggleSelect?: (unitId: string, additive: boolean) => void;
     highlightedUnitId?: string | null;
+    validationIssues?: Map<string, string[]>;
 }) {
     // ... (inside DraggableUnit function later in file)
     const { setNodeRef } = useDroppable({ id: 'canvas-droppable' });
@@ -1127,6 +1597,7 @@ function CanvasContent({
                         readOnly={readOnly}
                         isSelected={selectedUnitId === unit.id || (selectedIds?.has(unit.id) ?? false)}
                         isHighlighted={highlightedUnitId === unit.id}
+                        validationIssues={validationIssues?.get(unit.id) || []}
                         onUnitClick={(id) => {
                             // Multi-select with Shift held
                             onUnitClick?.(id);
@@ -1205,6 +1676,7 @@ function DraggableUnit({
     readOnly,
     isSelected,
     isHighlighted,
+    validationIssues,
     onUnitClick,
     onShiftClick,
     onUnitMessageClick,
@@ -1217,6 +1689,7 @@ function DraggableUnit({
     readOnly: boolean;
     isSelected: boolean;
     isHighlighted?: boolean;
+    validationIssues?: string[];
     onUnitClick?: (unitId: string) => void;
     onShiftClick?: (unitId: string) => void;
     onUnitMessageClick?: (unitId: string) => void;
@@ -1292,6 +1765,8 @@ function DraggableUnit({
     const showSelectGlow = isSelected;
     const showHighlight = !!isHighlighted;
     const glowVariant: 'selected' | 'hover' | 'highlighted' | null = showHighlight ? 'highlighted' : showSelectGlow ? 'selected' : showHoverGlow ? 'hover' : null;
+    const validationCount = validationIssues?.length || 0;
+    const hasValidation = validationCount > 0;
     const tooltipTitle = unit.id === currentUserUnitId
         ? 'This is where you are'
         : unit.tenantName && unit.tenantName !== 'Resident'
@@ -1379,7 +1854,8 @@ function DraggableUnit({
                 zIndex: isHovered ? 70 : isSelected ? 65 : 10,
                 cursor: readOnly ? 'pointer' : 'grab',
                 boxSizing: 'border-box',
-                outline: 'none'
+                outline: hasValidation ? '2px solid rgba(248, 113, 113, 0.75)' : 'none',
+                outlineOffset: hasValidation ? 2 : 0
             }}
             onClick={(e) => {
                 // Prevent click when drag was in progress (pointer moved > 5px)
@@ -1417,6 +1893,31 @@ function DraggableUnit({
                 }}>
                     <Pencil size={10} />
                     CLICK TO EDIT
+                </div>
+            )}
+
+            {hasValidation && (
+                <div
+                    title={validationIssues?.join('\n')}
+                    style={{
+                        position: 'absolute',
+                        top: 6,
+                        left: 6,
+                        background: 'rgba(127, 29, 29, 0.9)',
+                        color: '#fee2e2',
+                        border: '1px solid rgba(248, 113, 113, 0.6)',
+                        borderRadius: 999,
+                        padding: '2px 6px',
+                        fontSize: '0.6rem',
+                        fontWeight: 700,
+                        display: 'flex',
+                        alignItems: 'center',
+                        gap: 4,
+                        zIndex: 90
+                    }}
+                >
+                    <AlertTriangle size={10} />
+                    {validationCount}
                 </div>
             )}
 
