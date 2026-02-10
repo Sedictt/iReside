@@ -5,7 +5,7 @@ import { createPortal } from 'react-dom';
 import { motion, AnimatePresence } from 'framer-motion';
 import { autoUpdate, flip, offset, shift, size, useFloating } from '@floating-ui/react-dom';
 
-import { User, Plus, ArrowUpFromLine, Trash2, X, Save, Pencil, Copy, Grid3X3, TrendingUp, DollarSign, Percent, MousePointerClick, Maximize, Minimize } from 'lucide-react';
+import { User, Plus, ArrowUpFromLine, Trash2, X, Save, Pencil, Maximize2, Minimize2 } from 'lucide-react';
 
 type UnitType = 'studio' | '1br' | '2br' | 'stairs';
 
@@ -62,6 +62,8 @@ export default function VisualBuilder({
     propertyId,
     initialUnits = [],
     readOnly = false,
+    isFullScreen = false,
+    onToggleFullScreen,
     selectedUnitId = null,
     onUnitClick,
     onUnitMessageClick,
@@ -72,6 +74,8 @@ export default function VisualBuilder({
     propertyId: string;
     initialUnits?: InitialUnit[];
     readOnly?: boolean;
+    isFullScreen?: boolean;
+    onToggleFullScreen?: () => void;
     selectedUnitId?: string | null;
     onUnitClick?: (unitId: string) => void;
     onUnitMessageClick?: (unitId: string) => void;
@@ -113,8 +117,6 @@ export default function VisualBuilder({
 
     // Viewport State
     const [zoom, setZoom] = useState(1);
-    const [showGrid, setShowGrid] = useState(false);
-    const [isFullscreen, setIsFullscreen] = useState(false);
     const viewportRef = useRef<HTMLDivElement>(null);
 
     // Track mouse constantly for projection maths
@@ -236,11 +238,9 @@ export default function VisualBuilder({
     const handleDragEnd = async (event: DragEndEvent) => {
         if (readOnly) return;
         const { active, over } = event;
-
-        // Reset state immediately
         setActiveId(null);
         setActiveType(null);
-        setIsDraggingExistingUnit(false);
+        setIsDraggingExistingUnit(false); // Reset
         const finalGhost = ghostState;
         setGhostState(null);
 
@@ -248,46 +248,22 @@ export default function VisualBuilder({
 
         // DELETE ACTION
         if (over.id === 'trash-zone' && !active.data.current?.isPreset) {
-            // Optimistic Delete
-            const originalUnits = [...units];
-            const unitToDelete = units.find(u => u.id === active.id);
-            setUnits(prev => prev.filter(u => u.id !== active.id));
-
             const { error } = await supabase
                 .from('units')
                 .delete()
                 .eq('id', active.id);
 
-            if (error) {
-                // Revert on error
-                console.error('Failed to delete unit:', error);
-                if (unitToDelete) setUnits(prev => [...prev, unitToDelete]);
+            if (!error) {
+                setUnits(prev => prev.filter(u => u.id !== active.id));
             }
             return;
         }
 
         if (active.data.current?.isPreset) {
-            // SAVE TO SUPABASE (OPTIMISTIC)
+            // SAVE TO SUPABASE
             const unitType = activeType as UnitType;
-            const tempId = crypto.randomUUID();
-            const unitNumber = `${finalGhost.y}${Math.floor(finalGhost.x / 2) + 10}`;
-            const rentAmount = unitType === 'studio' ? 1200 : unitType === '1br' ? 1800 : 2500;
+            const unitNumber = `${finalGhost.y}${Math.floor(finalGhost.x / 2) + 10}`; // Simple generator
 
-            // 1. Add Optimistic Unit
-            const optimisticUnit: Unit = {
-                id: tempId,
-                type: unitType,
-                gridX: finalGhost.x,
-                gridY: finalGhost.y,
-                status: 'vacant',
-                unitNumber: unitNumber,
-                rentAmount: rentAmount,
-                // Add any other required fields with defaults
-            };
-
-            setUnits(prev => [...prev, optimisticUnit]);
-
-            // 2. Perform Backend Request
             const { data, error } = await supabase
                 .from('units')
                 .insert([{
@@ -296,38 +272,24 @@ export default function VisualBuilder({
                     grid_x: finalGhost.x,
                     grid_y: finalGhost.y,
                     unit_number: unitNumber,
-                    rent_amount: rentAmount,
+                    rent_amount: unitType === 'studio' ? 1200 : unitType === '1br' ? 1800 : 2500,
                     status: 'available'
                 }])
                 .select();
 
-            if (error) {
-                console.error('Failed to create unit:', error);
-                setUnits(prev => prev.filter(u => u.id !== tempId));
-            } else if (data) {
-                // 3. Update Temp ID with Real ID
+            if (data) {
                 const newUnit = data[0];
-                setUnits(prev => prev.map(u =>
-                    u.id === tempId ? {
-                        ...u,
-                        id: newUnit.id,
-                        // Update any other server-generated fields if needed
-                    } : u
-                ));
+                setUnits(prev => [...prev, {
+                    id: newUnit.id,
+                    type: newUnit.unit_type as UnitType,
+                    gridX: newUnit.grid_x,
+                    gridY: newUnit.grid_y,
+                    status: 'vacant',
+                    unitNumber: newUnit.unit_number
+                }]);
             }
         } else {
-            // UPDATE EXISTING UNIT (OPTIMISTIC)
-            const originalUnit = units.find(u => u.id === active.id);
-            if (!originalUnit) return;
-
-            // 1. Optimistic Update
-            setUnits(prev => prev.map(u =>
-                u.id === active.id
-                    ? { ...u, gridX: finalGhost.x, gridY: finalGhost.y }
-                    : u
-            ));
-
-            // 2. Backend Request
+            // UPDATE IN SUPABASE
             const { error } = await supabase
                 .from('units')
                 .update({
@@ -336,12 +298,10 @@ export default function VisualBuilder({
                 })
                 .eq('id', active.id);
 
-            if (error) {
-                console.error('Failed to move unit:', error);
-                // Revert
+            if (!error) {
                 setUnits(prev => prev.map(u =>
                     u.id === active.id
-                        ? { ...u, gridX: originalUnit.gridX, gridY: originalUnit.gridY }
+                        ? { ...u, gridX: finalGhost.x, gridY: finalGhost.y }
                         : u
                 ));
             }
@@ -408,52 +368,6 @@ export default function VisualBuilder({
         setIsSaving(false);
     };
 
-    const handleDuplicateUnit = async () => {
-        if (!editingUnit) return;
-        setIsSaving(true);
-
-        const widthCells = unitConfig[editingUnit.type].cells;
-        // Try to place to the right
-        let newX = editingUnit.gridX + widthCells;
-        let newY = editingUnit.gridY;
-
-        // If out of bounds, try next row
-        if (newX + widthCells > 30) { // Assuming 30 width for now or check collision
-            newX = 0;
-            newY = editingUnit.gridY + 1;
-        }
-
-        const unitNumber = `${newY}${Math.floor(newX / 2) + 10}`; // Simple gen
-
-        const { data, error } = await supabase
-            .from('units')
-            .insert([{
-                property_id: propertyId,
-                unit_type: editingUnit.type,
-                grid_x: newX,
-                grid_y: newY,
-                unit_number: unitNumber,
-                rent_amount: editingUnit.rentAmount,
-                status: 'available'
-            }])
-            .select();
-
-        if (data && !error) {
-            const newUnit = data[0];
-            setUnits(prev => [...prev, {
-                id: newUnit.id,
-                type: newUnit.unit_type as UnitType,
-                gridX: newUnit.grid_x,
-                gridY: newUnit.grid_y,
-                status: 'vacant',
-                unitNumber: newUnit.unit_number,
-                rentAmount: newUnit.rent_amount
-            }]);
-            setEditingUnit(null); // Close edit to show the new one
-        }
-        setIsSaving(false);
-    };
-
     return (
         <DndContext
             sensors={sensors}
@@ -461,340 +375,279 @@ export default function VisualBuilder({
             onDragMove={readOnly ? undefined : handleDragMove}
             onDragEnd={readOnly ? undefined : handleDragEnd}
         >
-            <div style={{
-                display: 'flex',
-                height: '100%',
-                overflow: 'hidden',
-                background: '#334155',
-                position: isFullscreen ? 'fixed' : 'relative',
-                inset: isFullscreen ? 0 : 'auto',
-                zIndex: isFullscreen ? 9999 : 1,
-                width: isFullscreen ? '100vw' : '100%',
-            }}>
+            <div style={{ display: 'flex', height: '100%', overflow: 'hidden', background: '#334155', position: 'relative' }}>
 
-                {/* Main Content Area */}
-                <div style={{ flex: 1, display: 'flex', flexDirection: 'column', minWidth: 0, position: 'relative' }}>
-
-                    {/* Toolbar */}
+                {/* Viewport with Native Scroll */}
+                <div
+                    ref={viewportRef}
+                    style={{
+                        flex: 1,
+                        position: 'relative',
+                        overflow: 'auto',
+                        background: '#0f172a',
+                    }}
+                >
+                    {/* World Container */}
                     <div style={{
-                        padding: '0.75rem 1.5rem',
-                        background: '#1e293b',
-                        borderBottom: '1px solid #334155',
-                        display: 'flex',
-                        alignItems: 'center',
-                        justifyContent: 'space-between',
-                        gap: '1rem',
-                        zIndex: 10
+                        width: `${3000 * zoom}px`, // Large scrolling area
+                        height: `${2000 * zoom}px`,
+                        transform: `scale(${zoom})`,
+                        transformOrigin: '0 0',
+                        position: 'relative',
                     }}>
-                        {/* Left Controls */}
-                        <div style={{ display: 'flex', alignItems: 'center', gap: '1.5rem' }}>
-                            {/* Legend */}
-                            <div style={{ display: 'flex', alignItems: 'center', gap: '1rem' }}>
-                                <span style={{ color: '#64748b', fontSize: '0.7rem', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.05em' }}>Legend</span>
-                                <div style={{ display: 'flex', gap: '1rem' }}>
-                                    <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-                                        <div style={{ width: 8, height: 8, borderRadius: 2, background: 'linear-gradient(to bottom, #0f172a, #020617)', border: '1px solid #334155' }} />
-                                        <span style={{ color: '#94a3b8', fontSize: '0.7rem' }}>Vacant</span>
-                                    </div>
-                                    <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-                                        <div style={{ width: 8, height: 8, borderRadius: 2, background: 'linear-gradient(to bottom, #451a03, #1e293b)', border: '1px solid #92400e' }} />
-                                        <span style={{ color: '#fbbf24', fontSize: '0.7rem' }}>Occupied</span>
-                                    </div>
-                                    <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-                                        <div style={{ width: 8, height: 8, borderRadius: 2, background: '#f59e0b', border: '1px solid #b45309' }} />
-                                        <span style={{ color: '#fbbf24', fontSize: '0.7rem' }}>Maint</span>
-                                    </div>
-                                    <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-                                        <div style={{ width: 8, height: 8, borderRadius: 2, background: 'linear-gradient(to right, #334155, #475569)', border: '1px solid #475569' }} />
-                                        <span style={{ color: '#94a3b8', fontSize: '0.7rem' }}>Stairs</span>
-                                    </div>
-                                </div>
+                        <CanvasContent
+                            units={units}
+                            ghost={ghostState}
+                            activeId={activeId}
+                            readOnly={readOnly}
+                            selectedUnitId={editingUnit?.id ?? selectedUnitId}
+                            onUnitClick={readOnly ? onUnitClick : handleUnitEdit}
+                            onUnitMessageClick={onUnitMessageClick}
+                            currentUserUnitId={currentUserUnitId}
+                            currentUserInitials={currentUserInitials}
+                            currentUserAvatarUrl={currentUserAvatarUrl}
+                        />
+
+                        {/* Floor Labels */}
+                        {Array.from({ length: 10 }).map((_, i) => (
+                            <div key={i} style={{ position: 'absolute', left: 10, top: (10 - i - 1) * UNIT_HEIGHT + UNIT_HEIGHT / 2, color: 'rgba(255,255,255,0.2)', fontWeight: 900, fontSize: '3rem', pointerEvents: 'none' }}>
+                                {i + 1}
                             </div>
-
-                            <div style={{ width: 1, height: 24, background: '#334155' }} />
-
-                            {/* Tools */}
-                            <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
-                                <button
-                                    onClick={() => setShowGrid(!showGrid)}
-                                    style={{
-                                        padding: '0.4rem', background: showGrid ? '#3b82f6' : 'transparent',
-                                        color: showGrid ? 'white' : '#94a3b8', borderRadius: '6px', border: '1px solid',
-                                        borderColor: showGrid ? '#3b82f6' : '#475569', cursor: 'pointer',
-                                        display: 'flex', alignItems: 'center', justifyContent: 'center'
-                                    }}
-                                    title="Toggle Grid"
-                                >
-                                    <Grid3X3 size={16} />
-                                </button>
-                                <button
-                                    onClick={() => setIsFullscreen(!isFullscreen)}
-                                    style={{
-                                        padding: '0.4rem', background: 'transparent',
-                                        color: '#94a3b8', borderRadius: '6px', border: '1px solid #475569', cursor: 'pointer',
-                                        display: 'flex', alignItems: 'center', justifyContent: 'center'
-                                    }}
-                                    title={isFullscreen ? "Exit Fullscreen" : "Enter Fullscreen"}
-                                >
-                                    {isFullscreen ? <Minimize size={16} /> : <Maximize size={16} />}
-                                </button>
-                                <span style={{ color: '#64748b', fontSize: '0.75rem', marginLeft: '0.5rem' }}>
-                                    {Math.round(zoom * 100)}%
-                                </span>
-                            </div>
-                        </div>
-
-                        {/* Right Stats */}
-                        {(() => {
-                            const rentableUnits = units.filter(u => u.type !== 'stairs');
-                            const totalUnits = rentableUnits.length;
-                            const occupied = rentableUnits.filter(u => u.status === 'occupied').length;
-                            const occupancyRate = totalUnits > 0 ? Math.round((occupied / totalUnits) * 100) : 0;
-                            const totalRent = rentableUnits.reduce((acc, u) => acc + (u.status === 'occupied' ? (u.rentAmount || 0) : 0), 0);
-                            const potentialRent = rentableUnits.reduce((acc, u) => acc + (u.rentAmount || 0), 0);
-
-                            return (
-                                <div style={{ display: 'flex', alignItems: 'center', gap: '1.5rem' }}>
-                                    <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
-                                        <TrendingUp size={16} className="text-emerald-400" />
-                                        <div style={{ display: 'flex', flexDirection: 'column', lineHeight: 1 }}>
-                                            <span style={{ color: '#94a3b8', fontSize: '0.65rem', fontWeight: 600, textTransform: 'uppercase' }}>Occupancy</span>
-                                            <span style={{ color: 'white', fontSize: '0.9rem', fontWeight: 700 }}>{occupancyRate}% <span style={{ color: '#64748b', fontSize: '0.75rem' }}>({occupied}/{totalUnits})</span></span>
-                                        </div>
-                                    </div>
-                                    <div style={{ width: 1, height: 24, background: '#334155' }} />
-                                    <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
-                                        <DollarSign size={16} className="text-blue-400" />
-                                        <div style={{ display: 'flex', flexDirection: 'column', lineHeight: 1 }}>
-                                            <span style={{ color: '#94a3b8', fontSize: '0.65rem', fontWeight: 600, textTransform: 'uppercase' }}>Revenue</span>
-                                            <span style={{ color: 'white', fontSize: '0.9rem', fontWeight: 700 }}>
-                                                ${totalRent.toLocaleString()}
-                                                <span style={{ color: '#64748b', fontSize: '0.75rem', fontWeight: 500 }}> / ${(potentialRent / 1000).toFixed(1)}k</span>
-                                            </span>
-                                        </div>
-                                    </div>
-                                </div>
-                            );
-                        })()}
+                        ))}
                     </div>
-
-                    {/* Viewport with Native Scroll */}
-                    <div
-                        ref={viewportRef}
-                        style={{
-                            flex: 1,
-                            position: 'relative',
-                            overflow: 'auto',
-                            background: '#0f172a',
-                        }}
-                    >
-                        {/* World Container */}
-                        <div style={{
-                            width: `${2000 * zoom}px`, // Reduced from 3000
-                            height: `${1600 * zoom}px`, // Reduced from 2000
-                            transform: `scale(${zoom})`,
-                            transformOrigin: '0 0',
-                            position: 'relative',
-                        }}>
-                            <CanvasContent
-                                units={units}
-                                ghost={ghostState}
-                                activeId={activeId}
-                                readOnly={readOnly}
-                                selectedUnitId={editingUnit?.id ?? selectedUnitId}
-                                onUnitClick={readOnly ? onUnitClick : handleUnitEdit}
-                                onUnitMessageClick={onUnitMessageClick}
-                                currentUserUnitId={currentUserUnitId}
-                                currentUserInitials={currentUserInitials}
-                                currentUserAvatarUrl={currentUserAvatarUrl}
-                                showGrid={showGrid}
-                            />
-
-                            {/* Floor Labels */}
-                            {Array.from({ length: 10 }).map((_, i) => (
-                                <div key={i} style={{ position: 'absolute', left: 10, top: (10 - i - 1) * UNIT_HEIGHT + UNIT_HEIGHT / 2, color: 'rgba(255,255,255,0.2)', fontWeight: 900, fontSize: '3rem', pointerEvents: 'none' }}>
-                                    {i + 1}
-                                </div>
-                            ))}
-                        </div>
-                    </div>
-
                 </div>
 
-                {
-                    !readOnly && (
-                        <>
-                            {/* Sidebar */}
-                            <aside style={{ width: '280px', background: '#1e293b', borderLeft: '1px solid #475569', display: 'flex', flexDirection: 'column', zIndex: 50 }}>
-                                {editingUnit ? (
-                                    /* EDIT PANEL */
-                                    <>
-                                        <div style={{ padding: '1.25rem 1.5rem', borderBottom: '1px solid #334155', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-                                            <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
-                                                <Pencil size={16} color="#818cf8" />
-                                                <h2 style={{ color: 'white', fontWeight: 700, fontSize: '1.1rem' }}>Edit Unit</h2>
-                                            </div>
-                                            <button
-                                                onClick={() => setEditingUnit(null)}
-                                                style={{ background: 'none', border: 'none', color: '#94a3b8', cursor: 'pointer', padding: 4 }}
+                {/* Float Controls */}
+                <div style={{ position: 'absolute', bottom: '2rem', left: '2rem', right: '2rem', display: 'flex', justifyContent: 'space-between', alignItems: 'flex-end', zIndex: 60, pointerEvents: 'none' }}>
+
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem' }}>
+                        {/* Legend */}
+                        <div style={{
+                            padding: '0.6rem 0.9rem',
+                            background: 'rgba(15, 23, 42, 0.85)',
+                            borderRadius: '10px',
+                            border: '1px solid #334155',
+                            backdropFilter: 'blur(8px)',
+                            display: 'flex',
+                            gap: '0.75rem',
+                            alignItems: 'center',
+                            flexWrap: 'wrap'
+                        }}>
+                            <span style={{ color: '#64748b', fontSize: '0.65rem', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.05em' }}>Legend</span>
+                            <div style={{ display: 'flex', alignItems: 'center', gap: 5 }}>
+                                <div style={{ width: 10, height: 10, borderRadius: 2, background: 'linear-gradient(to bottom, #0f172a, #020617)', border: '1px solid #334155' }} />
+                                <span style={{ color: '#94a3b8', fontSize: '0.7rem' }}>Vacant</span>
+                            </div>
+                            <div style={{ display: 'flex', alignItems: 'center', gap: 5 }}>
+                                <div style={{ width: 10, height: 10, borderRadius: 2, background: 'linear-gradient(to bottom, #451a03, #1e293b)', border: '1px solid #92400e' }} />
+                                <span style={{ color: '#fbbf24', fontSize: '0.7rem' }}>Occupied</span>
+                            </div>
+                            <div style={{ display: 'flex', alignItems: 'center', gap: 5 }}>
+                                <div style={{ width: 10, height: 10, borderRadius: 2, background: '#f59e0b', border: '1px solid #b45309' }} />
+                                <span style={{ color: '#fbbf24', fontSize: '0.7rem' }}>Maintenance</span>
+                            </div>
+                            <div style={{ display: 'flex', alignItems: 'center', gap: 5 }}>
+                                <div style={{ width: 10, height: 10, borderRadius: 2, background: '#1e293b', border: '1px solid #ef4444', boxShadow: '0 0 4px rgba(239, 68, 68, 0.4)' }} />
+                                <span style={{ color: '#fca5a5', fontSize: '0.7rem' }}>Near Due</span>
+                            </div>
+                            <div style={{ display: 'flex', alignItems: 'center', gap: 5 }}>
+                                <div style={{ width: 10, height: 10, borderRadius: 2, background: 'linear-gradient(to right, #334155, #475569)', border: '1px solid #475569' }} />
+                                <span style={{ color: '#94a3b8', fontSize: '0.7rem' }}>Stairs</span>
+                            </div>
+                        </div>
+
+                        <div style={{ display: 'flex', gap: '0.5rem', pointerEvents: 'auto' }}>
+                            <div style={{ padding: '0.5rem 1rem', background: 'rgba(30, 41, 59, 0.8)', color: 'white', borderRadius: '8px', fontSize: '0.8rem', border: '1px solid #475569' }}>
+                                Ctrl + Scroll to Zoom • Scroll to Pan
+                            </div>
+                            <div style={{ padding: '0.5rem 1rem', background: '#1e293b', border: '1px solid #475569', color: 'white', borderRadius: '8px', fontWeight: 'bold' }}>
+                                {Math.round(zoom * 100)}%
+                            </div>
+                            {onToggleFullScreen && (
+                                <button
+                                    type="button"
+                                    onClick={onToggleFullScreen}
+                                    aria-pressed={isFullScreen}
+                                    title={isFullScreen ? 'Exit Full Screen' : 'Full Screen'}
+                                    style={{
+                                        padding: '0.5rem 0.75rem',
+                                        background: '#1e293b',
+                                        border: '1px solid #475569',
+                                        color: 'white',
+                                        borderRadius: '8px',
+                                        fontWeight: 600,
+                                        display: 'flex',
+                                        alignItems: 'center',
+                                        gap: '0.35rem',
+                                        cursor: 'pointer',
+                                        pointerEvents: 'auto'
+                                    }}
+                                >
+                                    {isFullScreen ? <Minimize2 size={16} /> : <Maximize2 size={16} />}
+                                    <span style={{ fontSize: '0.8rem' }}>Full Screen</span>
+                                </button>
+                            )}
+                        </div>
+                    </div>
+                </div>
+
+                {!readOnly && (
+                    <>
+                        {/* Sidebar */}
+                        <aside style={{ width: '280px', background: '#1e293b', borderLeft: '1px solid #475569', display: 'flex', flexDirection: 'column', zIndex: 50 }}>
+                            {editingUnit ? (
+                                /* EDIT PANEL */
+                                <>
+                                    <div style={{ padding: '1.25rem 1.5rem', borderBottom: '1px solid #334155', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+                                        <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+                                            <Pencil size={16} color="#818cf8" />
+                                            <h2 style={{ color: 'white', fontWeight: 700, fontSize: '1.1rem' }}>Edit Unit</h2>
+                                        </div>
+                                        <button
+                                            onClick={() => setEditingUnit(null)}
+                                            style={{ background: 'none', border: 'none', color: '#94a3b8', cursor: 'pointer', padding: 4 }}
+                                        >
+                                            <X size={18} />
+                                        </button>
+                                    </div>
+                                    <div style={{ flex: 1, padding: '1.5rem', display: 'flex', flexDirection: 'column', gap: '1.25rem', overflowY: 'auto' }}>
+                                        {/* Unit Type */}
+                                        <div style={{ display: 'flex', flexDirection: 'column', gap: '0.4rem' }}>
+                                            <label style={{ color: '#94a3b8', fontSize: '0.75rem', fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.05em' }}>Unit Type</label>
+                                            <select
+                                                value={editForm.type}
+                                                onChange={e => setEditForm(f => ({ ...f, type: e.target.value as UnitType }))}
+                                                style={{ padding: '0.6rem 0.75rem', background: '#0f172a', border: '1px solid #334155', borderRadius: 8, color: '#f1f5f9', fontSize: '0.85rem', outline: 'none' }}
                                             >
-                                                <X size={18} />
-                                            </button>
-                                        </div>
-                                        <div style={{ flex: 1, padding: '1.5rem', display: 'flex', flexDirection: 'column', gap: '1.25rem', overflowY: 'auto' }}>
-                                            {/* Unit Type */}
-                                            <div style={{ display: 'flex', flexDirection: 'column', gap: '0.4rem' }}>
-                                                <label style={{ color: '#94a3b8', fontSize: '0.75rem', fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.05em' }}>Unit Type</label>
-                                                <select
-                                                    value={editForm.type}
-                                                    onChange={e => setEditForm(f => ({ ...f, type: e.target.value as UnitType }))}
-                                                    style={{ padding: '0.6rem 0.75rem', background: '#0f172a', border: '1px solid #334155', borderRadius: 8, color: '#f1f5f9', fontSize: '0.85rem', outline: 'none' }}
-                                                >
-                                                    <option value="studio">Studio</option>
-                                                    <option value="1br">1 Bedroom</option>
-                                                    <option value="2br">2 Bedroom</option>
-                                                </select>
-                                            </div>
-
-                                            {/* Unit Number */}
-                                            <div style={{ display: 'flex', flexDirection: 'column', gap: '0.4rem' }}>
-                                                <label style={{ color: '#94a3b8', fontSize: '0.75rem', fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.05em' }}>Unit Number</label>
-                                                <input
-                                                    type="text"
-                                                    value={editForm.unitNumber}
-                                                    onChange={e => setEditForm(f => ({ ...f, unitNumber: e.target.value }))}
-                                                    placeholder="e.g. 101"
-                                                    style={{ padding: '0.6rem 0.75rem', background: '#0f172a', border: '1px solid #334155', borderRadius: 8, color: '#f1f5f9', fontSize: '0.85rem', outline: 'none' }}
-                                                />
-                                            </div>
-
-                                            {/* Rent Amount */}
-                                            <div style={{ display: 'flex', flexDirection: 'column', gap: '0.4rem' }}>
-                                                <label style={{ color: '#94a3b8', fontSize: '0.75rem', fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.05em' }}>Rent Amount (₱)</label>
-                                                <input
-                                                    type="number"
-                                                    value={editForm.rentAmount}
-                                                    onChange={e => setEditForm(f => ({ ...f, rentAmount: e.target.value }))}
-                                                    placeholder="e.g. 1500"
-                                                    style={{ padding: '0.6rem 0.75rem', background: '#0f172a', border: '1px solid #334155', borderRadius: 8, color: '#f1f5f9', fontSize: '0.85rem', outline: 'none' }}
-                                                />
-                                            </div>
-
-                                            {/* Status */}
-                                            <div style={{ display: 'flex', flexDirection: 'column', gap: '0.4rem' }}>
-                                                <label style={{ color: '#94a3b8', fontSize: '0.75rem', fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.05em' }}>Status</label>
-                                                <select
-                                                    value={editForm.status}
-                                                    onChange={e => setEditForm(f => ({ ...f, status: e.target.value }))}
-                                                    style={{ padding: '0.6rem 0.75rem', background: '#0f172a', border: '1px solid #334155', borderRadius: 8, color: '#f1f5f9', fontSize: '0.85rem', outline: 'none' }}
-                                                >
-                                                    <option value="vacant">Vacant</option>
-                                                    <option value="occupied">Occupied</option>
-                                                    <option value="maintenance">Maintenance</option>
-                                                </select>
-                                            </div>
-
-                                            {/* Grid Position (read-only info) */}
-                                            <div style={{ padding: '0.75rem', background: '#0f172a', borderRadius: 8, border: '1px solid #334155' }}>
-                                                <div style={{ color: '#64748b', fontSize: '0.7rem', fontWeight: 600, textTransform: 'uppercase', marginBottom: '0.35rem' }}>Position</div>
-                                                <div style={{ color: '#94a3b8', fontSize: '0.8rem' }}>Floor {editingUnit.gridY} &bull; Column {editingUnit.gridX}</div>
-                                            </div>
+                                                <option value="studio">Studio</option>
+                                                <option value="1br">1 Bedroom</option>
+                                                <option value="2br">2 Bedroom</option>
+                                            </select>
                                         </div>
 
-                                        {/* Action Buttons */}
-                                        <div style={{ padding: '1.25rem 1.5rem', borderTop: '1px solid #334155', display: 'flex', flexDirection: 'column', gap: '0.5rem' }}>
-                                            <button
-                                                onClick={handleEditSave}
-                                                disabled={isSaving}
-                                                style={{
-                                                    padding: '0.7rem', background: '#6366f1', color: 'white', border: 'none',
-                                                    borderRadius: 8, fontWeight: 700, fontSize: '0.85rem', cursor: 'pointer',
-                                                    display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '0.5rem',
-                                                    opacity: isSaving ? 0.6 : 1
-                                                }}
+                                        {/* Unit Number */}
+                                        <div style={{ display: 'flex', flexDirection: 'column', gap: '0.4rem' }}>
+                                            <label style={{ color: '#94a3b8', fontSize: '0.75rem', fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.05em' }}>Unit Number</label>
+                                            <input
+                                                type="text"
+                                                value={editForm.unitNumber}
+                                                onChange={e => setEditForm(f => ({ ...f, unitNumber: e.target.value }))}
+                                                placeholder="e.g. 101"
+                                                style={{ padding: '0.6rem 0.75rem', background: '#0f172a', border: '1px solid #334155', borderRadius: 8, color: '#f1f5f9', fontSize: '0.85rem', outline: 'none' }}
+                                            />
+                                        </div>
+
+                                        {/* Rent Amount */}
+                                        <div style={{ display: 'flex', flexDirection: 'column', gap: '0.4rem' }}>
+                                            <label style={{ color: '#94a3b8', fontSize: '0.75rem', fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.05em' }}>Rent Amount (₱)</label>
+                                            <input
+                                                type="number"
+                                                value={editForm.rentAmount}
+                                                onChange={e => setEditForm(f => ({ ...f, rentAmount: e.target.value }))}
+                                                placeholder="e.g. 1500"
+                                                style={{ padding: '0.6rem 0.75rem', background: '#0f172a', border: '1px solid #334155', borderRadius: 8, color: '#f1f5f9', fontSize: '0.85rem', outline: 'none' }}
+                                            />
+                                        </div>
+
+                                        {/* Status */}
+                                        <div style={{ display: 'flex', flexDirection: 'column', gap: '0.4rem' }}>
+                                            <label style={{ color: '#94a3b8', fontSize: '0.75rem', fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.05em' }}>Status</label>
+                                            <select
+                                                value={editForm.status}
+                                                onChange={e => setEditForm(f => ({ ...f, status: e.target.value }))}
+                                                style={{ padding: '0.6rem 0.75rem', background: '#0f172a', border: '1px solid #334155', borderRadius: 8, color: '#f1f5f9', fontSize: '0.85rem', outline: 'none' }}
                                             >
-                                                <Save size={16} />
-                                                {isSaving ? 'Saving...' : 'Save Changes'}
-                                            </button>
-                                            <button
-                                                onClick={handleDuplicateUnit}
-                                                disabled={isSaving}
-                                                style={{
-                                                    padding: '0.7rem', background: '#3b82f6', color: 'white', border: 'none',
-                                                    borderRadius: 8, fontWeight: 700, fontSize: '0.85rem', cursor: 'pointer',
-                                                    display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '0.5rem',
-                                                    opacity: isSaving ? 0.6 : 1
-                                                }}
-                                            >
-                                                <Copy size={16} />
-                                                Duplicate Unit
-                                            </button>
-                                            <button
-                                                onClick={handleEditDelete}
-                                                disabled={isSaving}
-                                                style={{
-                                                    padding: '0.7rem', background: 'transparent', color: '#f87171', border: '1px solid #7f1d1d',
-                                                    borderRadius: 8, fontWeight: 600, fontSize: '0.8rem', cursor: 'pointer',
-                                                    display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '0.5rem',
-                                                    opacity: isSaving ? 0.6 : 1
-                                                }}
-                                            >
-                                                <Trash2 size={14} />
-                                                Delete Unit
-                                            </button>
+                                                <option value="vacant">Vacant</option>
+                                                <option value="occupied">Occupied</option>
+                                                <option value="maintenance">Maintenance</option>
+                                            </select>
                                         </div>
-                                    </>
-                                ) : (
-                                    /* CONSTRUCTION KIT (original sidebar) */
-                                    <>
-                                        <div style={{ padding: '1.5rem', borderBottom: '1px solid #334155' }}>
-                                            <h2 style={{ color: 'white', fontWeight: 700, fontSize: '1.1rem', marginBottom: '0.5rem' }}>Construction Kit</h2>
-                                            <p style={{ color: '#94a3b8', fontSize: '0.8rem' }}>Drag rooms onto the property. Click a unit to edit it.</p>
-                                        </div>
-                                        <div style={{ flex: 1, padding: '1.5rem', display: 'flex', flexDirection: 'column', gap: '1rem', overflowY: 'auto' }}>
-                                            <SidebarUnit type="studio" label="Studio Apt" icon={<User size={16} />} />
-                                            <SidebarUnit type="1br" label="1 Bedroom" icon={<User size={16} />} />
-                                            <SidebarUnit type="2br" label="2 Bedroom" icon={<User size={16} />} />
-                                            <SidebarUnit type="stairs" label="Stairwell" icon={<ArrowUpFromLine size={16} />} />
-                                        </div>
-                                    </>
-                                )}
-                            </aside>
 
-                            <AnimatePresence>
-                                {isDraggingExistingUnit && (
-                                    <TrashZone />
-                                )}
-                            </AnimatePresence>
-                        </>
-                    )
-                }
-            </div >
+                                        {/* Grid Position (read-only info) */}
+                                        <div style={{ padding: '0.75rem', background: '#0f172a', borderRadius: 8, border: '1px solid #334155' }}>
+                                            <div style={{ color: '#64748b', fontSize: '0.7rem', fontWeight: 600, textTransform: 'uppercase', marginBottom: '0.35rem' }}>Position</div>
+                                            <div style={{ color: '#94a3b8', fontSize: '0.8rem' }}>Floor {editingUnit.gridY} &bull; Column {editingUnit.gridX}</div>
+                                        </div>
+                                    </div>
+
+                                    {/* Action Buttons */}
+                                    <div style={{ padding: '1.25rem 1.5rem', borderTop: '1px solid #334155', display: 'flex', flexDirection: 'column', gap: '0.5rem' }}>
+                                        <button
+                                            onClick={handleEditSave}
+                                            disabled={isSaving}
+                                            style={{
+                                                padding: '0.7rem', background: '#6366f1', color: 'white', border: 'none',
+                                                borderRadius: 8, fontWeight: 700, fontSize: '0.85rem', cursor: 'pointer',
+                                                display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '0.5rem',
+                                                opacity: isSaving ? 0.6 : 1
+                                            }}
+                                        >
+                                            <Save size={16} />
+                                            {isSaving ? 'Saving...' : 'Save Changes'}
+                                        </button>
+                                        <button
+                                            onClick={handleEditDelete}
+                                            disabled={isSaving}
+                                            style={{
+                                                padding: '0.7rem', background: 'transparent', color: '#f87171', border: '1px solid #7f1d1d',
+                                                borderRadius: 8, fontWeight: 600, fontSize: '0.8rem', cursor: 'pointer',
+                                                display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '0.5rem',
+                                                opacity: isSaving ? 0.6 : 1
+                                            }}
+                                        >
+                                            <Trash2 size={14} />
+                                            Delete Unit
+                                        </button>
+                                    </div>
+                                </>
+                            ) : (
+                                /* CONSTRUCTION KIT (original sidebar) */
+                                <>
+                                    <div style={{ padding: '1.5rem', borderBottom: '1px solid #334155' }}>
+                                        <h2 style={{ color: 'white', fontWeight: 700, fontSize: '1.1rem', marginBottom: '0.5rem' }}>Construction Kit</h2>
+                                        <p style={{ color: '#94a3b8', fontSize: '0.8rem' }}>Drag rooms onto the property. Click a unit to edit it.</p>
+                                    </div>
+                                    <div style={{ flex: 1, padding: '1.5rem', display: 'flex', flexDirection: 'column', gap: '1rem', overflowY: 'auto' }}>
+                                        <SidebarUnit type="studio" label="Studio Apt" icon={<User size={16} />} />
+                                        <SidebarUnit type="1br" label="1 Bedroom" icon={<User size={16} />} />
+                                        <SidebarUnit type="2br" label="2 Bedroom" icon={<User size={16} />} />
+                                        <SidebarUnit type="stairs" label="Stairwell" icon={<ArrowUpFromLine size={16} />} />
+                                    </div>
+                                </>
+                            )}
+                        </aside>
+
+                        <AnimatePresence>
+                            {isDraggingExistingUnit && (
+                                <TrashZone />
+                            )}
+                        </AnimatePresence>
+                    </>
+                )}
+            </div>
 
             {/* DRAG OVERLAY - Follows Mouse (Screen Space) */}
-            {
-                !readOnly && mounted && createPortal(
-                    <DragOverlay dropAnimation={null} zIndex={9999}>
-                        {activeType ? (
-                            <div style={{
-                                width: unitConfig[activeType].cells * GRID_CELL_SIZE * zoom, // Match zoom visual
-                                height: UNIT_HEIGHT * zoom,
-                                background: '#6366f1',
-                                opacity: 0.8,
-                                borderRadius: '4px',
-                                boxShadow: '0 10px 30px rgba(0,0,0,0.5)',
-                                display: 'flex', alignItems: 'center', justifyContent: 'center', color: 'white', fontWeight: 'bold',
-                                transformOrigin: 'top left',
-                            }}>
-                                {unitConfig[activeType].label}
-                            </div>
-                        ) : null}
-                    </DragOverlay>,
-                    document.body
-                )
-            }
+            {!readOnly && mounted && createPortal(
+                <DragOverlay dropAnimation={null} zIndex={9999}>
+                    {activeType ? (
+                        <div style={{
+                            width: unitConfig[activeType].cells * GRID_CELL_SIZE * zoom, // Match zoom visual
+                            height: UNIT_HEIGHT * zoom,
+                            background: '#6366f1',
+                            opacity: 0.8,
+                            borderRadius: '4px',
+                            boxShadow: '0 10px 30px rgba(0,0,0,0.5)',
+                            display: 'flex', alignItems: 'center', justifyContent: 'center', color: 'white', fontWeight: 'bold',
+                            transformOrigin: 'top left',
+                        }}>
+                            {unitConfig[activeType].label}
+                        </div>
+                    ) : null}
+                </DragOverlay>,
+                document.body
+            )}
 
-        </DndContext >
+        </DndContext>
     );
 }
 
@@ -808,8 +661,7 @@ function CanvasContent({
     onUnitMessageClick,
     currentUserUnitId,
     currentUserInitials,
-    currentUserAvatarUrl,
-    showGrid
+    currentUserAvatarUrl
 }: {
     units: Unit[];
     ghost: GhostState | null;
@@ -821,7 +673,6 @@ function CanvasContent({
     currentUserUnitId?: string | null;
     currentUserInitials?: string;
     currentUserAvatarUrl?: string | null;
-    showGrid?: boolean;
 }) {
     // ... (inside DraggableUnit function later in file)
     const { setNodeRef } = useDroppable({ id: 'canvas-droppable' });
@@ -829,17 +680,6 @@ function CanvasContent({
 
     return (
         <div ref={setNodeRef} style={{ width: '100%', height: '100%', position: 'relative' }}>
-            {/* Grid Pattern */}
-            {showGrid && (
-                <div style={{
-                    position: 'absolute', inset: 0,
-                    backgroundImage: `linear-gradient(to right, #475569 1px, transparent 1px), linear-gradient(to bottom, #475569 1px, transparent 1px)`,
-                    backgroundSize: `${40}px ${40}px`,
-                    opacity: 0.3,
-                    pointerEvents: 'none',
-                    zIndex: 0
-                }} />
-            )}
 
             {/* GHOST PREVIEW */}
             {ghost && (
@@ -1151,38 +991,38 @@ function DraggableUnit({
                 position: 'relative', overflow: 'visible' // visible for popouts if needed
             }}>
 
-                {readOnly && unit.id === currentUserUnitId && (
-                    <div style={{
-                        position: 'absolute',
-                        top: '50%',
-                        left: '50%',
-                        transform: 'translate(-50%, -50%)',
-                        width: 42,
-                        height: 42,
-                        borderRadius: '50%',
-                        background: '#6366f1',
-                        color: 'white',
-                        display: 'flex',
-                        alignItems: 'center',
-                        justifyContent: 'center',
-                        fontSize: '0.8rem',
-                        fontWeight: 700,
-                        border: '2px solid rgba(15, 23, 42, 0.9)',
-                        boxShadow: '0 6px 16px rgba(15, 23, 42, 0.45)',
-                        overflow: 'hidden',
-                        zIndex: 40
-                    }}>
-                        {currentUserAvatarUrl ? (
-                            <img
-                                src={currentUserAvatarUrl}
-                                alt="Your profile"
-                                style={{ width: '100%', height: '100%', objectFit: 'cover' }}
-                            />
-                        ) : (
-                            <span>{currentUserInitials || 'ME'}</span>
-                        )}
-                    </div>
-                )}
+                    {readOnly && unit.id === currentUserUnitId && (
+                        <div style={{
+                            position: 'absolute',
+                            top: '50%',
+                            left: '50%',
+                            transform: 'translate(-50%, -50%)',
+                            width: 42,
+                            height: 42,
+                            borderRadius: '50%',
+                            background: '#6366f1',
+                            color: 'white',
+                            display: 'flex',
+                            alignItems: 'center',
+                            justifyContent: 'center',
+                            fontSize: '0.8rem',
+                            fontWeight: 700,
+                            border: '2px solid rgba(15, 23, 42, 0.9)',
+                            boxShadow: '0 6px 16px rgba(15, 23, 42, 0.45)',
+                            overflow: 'hidden',
+                            zIndex: 40
+                        }}>
+                            {currentUserAvatarUrl ? (
+                                <img
+                                    src={currentUserAvatarUrl}
+                                    alt="Your profile"
+                                    style={{ width: '100%', height: '100%', objectFit: 'cover' }}
+                                />
+                            ) : (
+                                <span>{currentUserInitials || 'ME'}</span>
+                            )}
+                        </div>
+                    )}
 
                 {/* Floor Slab (Structure) */}
                 <div style={{
@@ -1453,17 +1293,6 @@ function DraggableUnit({
                                             )}
                                             <div style={{ fontWeight: 700, fontSize: '0.85rem' }}>{tooltipTitle}</div>
                                             <div style={{ color: '#94a3b8', fontSize: '0.7rem' }}>{tooltipSubtitle}</div>
-
-                                            <div style={{ marginTop: '0.5rem', display: 'flex', gap: '0.5rem', justifyContent: 'center' }}>
-                                                <div style={{ background: 'rgba(255,255,255,0.1)', padding: '2px 6px', borderRadius: 4, fontSize: '0.65rem', color: '#cbd5e1' }}>
-                                                    {unitConfig[unit.type].label}
-                                                </div>
-                                                {unit.rentAmount && (
-                                                    <div style={{ background: 'rgba(16, 185, 129, 0.2)', padding: '2px 6px', borderRadius: 4, fontSize: '0.65rem', color: '#6ee7b7', border: '1px solid rgba(16, 185, 129, 0.3)' }}>
-                                                        ${unit.rentAmount.toLocaleString()}
-                                                    </div>
-                                                )}
-                                            </div>
                                         </div>
                                         <div style={{
                                             borderTop: '1px solid rgba(148, 163, 184, 0.2)',
@@ -1528,6 +1357,6 @@ function DraggableUnit({
                 <div style={{ position: 'absolute', top: 0, bottom: 0, right: 0, width: 4, background: '#334155', borderLeft: '1px solid #1e293b' }}></div>
 
             </div>
-        </div >
+        </div>
     );
 }

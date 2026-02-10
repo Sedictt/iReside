@@ -9,6 +9,36 @@
     margin-bottom: 2.5rem;
 }
 
+.headerLeft {
+    display: flex;
+    align-items: center;
+    gap: 1rem;
+}
+
+.headerRight {
+    display: flex;
+    align-items: center;
+    gap: 1rem;
+}
+
+.headerBtn {
+    background: white;
+    border: 1px solid var(--border);
+    padding: 0.5rem;
+    border-radius: 8px;
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    color: var(--muted-foreground);
+    transition: all 0.2s ease;
+}
+
+.headerBtn:hover {
+    background: #f3f4f6;
+    color: var(--foreground);
+}
+
 .title {
     font-size: 1.75rem;
     font-weight: 700;
@@ -293,9 +323,25 @@
 
 .visualBuilderWrapper {
     /* flex: 1; */
+    position: relative;
     height: 600px;
     background: white;
     border-radius: 20px;
     border: 1px solid var(--border);
     overflow: hidden;
 }
+
+.visualBuilderWrapper.fullScreen {
+    position: fixed;
+    top: 0;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    width: 100vw;
+    height: 100vh;
+    z-index: 9999;
+    border-radius: 0;
+    border: none;
+    margin: 0;
+}
+

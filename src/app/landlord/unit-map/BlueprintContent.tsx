@@ -30,6 +30,7 @@ export default function BlueprintContent() {
     const [selectedProperty, setSelectedProperty] = useState<PropertyRow | null>(null);
     const [isLoading, setIsLoading] = useState(true);
     const [isAddingProperty, setIsAddingProperty] = useState(false);
+    const [isFullScreen, setIsFullScreen] = useState(false);
     const supabase = useMemo(() => createClient(), []);
 
     const fetchProperties = useCallback(async () => {
@@ -103,8 +104,13 @@ export default function BlueprintContent() {
                         <span className={styles.badge}>{selectedProperty.units?.length || 0} Units</span>
                     </div>
                 </header>
-                <div className={styles.visualBuilderWrapper}>
-                    <VisualBuilder propertyId={selectedProperty.id} initialUnits={selectedProperty.units ?? []} />
+                <div className={`${styles.visualBuilderWrapper} ${isFullScreen ? styles.fullScreen : ''}`}>
+                    <VisualBuilder
+                        propertyId={selectedProperty.id}
+                        initialUnits={selectedProperty.units ?? []}
+                        isFullScreen={isFullScreen}
+                        onToggleFullScreen={() => setIsFullScreen((prev) => !prev)}
+                    />
                 </div>
             </div>
         );

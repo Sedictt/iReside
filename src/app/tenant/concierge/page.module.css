@@ -151,6 +151,7 @@
     font-weight: 800;
     /* Bolder */
     background: linear-gradient(135deg, #4f46e5 0%, #9333ea 100%);
+    background-clip: text;
     -webkit-background-clip: text;
     -webkit-text-fill-color: transparent;
     margin: 0;
