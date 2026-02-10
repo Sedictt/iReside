@@ -1,11 +1,19 @@
 "use client";
-import React, { useState, useRef, useEffect } from 'react';
+import React, { useState, useRef, useEffect, useCallback } from 'react';
 import { DndContext, useDraggable, useDroppable, DragEndEvent, DragStartEvent, DragMoveEvent, DragOverlay, useSensor, useSensors, PointerSensor } from '@dnd-kit/core';
 import { createPortal } from 'react-dom';
 import { motion, AnimatePresence } from 'framer-motion';
 import { autoUpdate, flip, offset, shift, size, useFloating } from '@floating-ui/react-dom';
 
-import { User, Plus, ArrowUpFromLine, Trash2, X, Save, Pencil, Maximize2, Minimize2 } from 'lucide-react';
+import { User, Plus, ArrowUpFromLine, Trash2, X, Save, Pencil, Maximize2, Minimize2, Eye, EyeOff } from 'lucide-react';
+
+// QoL feature imports
+import { useUndoRedo } from './visual-builder/useUndoRedo';
+import { usePersistedViewport } from './visual-builder/usePersistedViewport';
+import MiniMap from './visual-builder/MiniMap';
+import BuilderToolbar from './visual-builder/BuilderToolbar';
+import CanvasSearch from './visual-builder/CanvasSearch';
+import SavedViews, { type SavedView } from './visual-builder/SavedViews';
 
 type UnitType = 'studio' | '1br' | '2br' | 'stairs';
 
@@ -119,6 +127,27 @@ export default function VisualBuilder({
     const [zoom, setZoom] = useState(1);
     const viewportRef = useRef<HTMLDivElement>(null);
 
+    // ═══ QoL: Multi-select ═══
+    const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
+
+    // ═══ QoL: Grid & Snap ═══
+    const [showGrid, setShowGrid] = useState(false);
+    const [snapToGrid, setSnapToGrid] = useState(true);
+
+    // ═══ QoL: Undo / Redo ═══
+    const undoRedo = useUndoRedo<Unit[]>();
+
+    // ═══ QoL: Search & Saved Views ═══
+    const [searchOpen, setSearchOpen] = useState(false);
+    const [savedViewsOpen, setSavedViewsOpen] = useState(false);
+    const [highlightedUnitId, setHighlightedUnitId] = useState<string | null>(null);
+
+    // ═══ QoL: HUD visibility ═══
+    const [hudVisible, setHudVisible] = useState(true);
+
+    // ═══ QoL: Persisted viewport ═══
+    usePersistedViewport(propertyId, viewportRef, zoom, setZoom);
+
     // Track mouse constantly for projection maths
     const mousePos = useRef({ x: 0, y: 0 });
 
@@ -159,6 +188,251 @@ export default function VisualBuilder({
         if (!readOnly) return;
         setUnits(mapInitialUnits(initialUnits));
     }, [initialUnits, readOnly]);
+
+    // ═══════════════════════════
+    //  QoL HELPER FUNCTIONS
+    // ═══════════════════════════
+
+    /** Push current state to undo stack before every mutation */
+    const pushUndo = useCallback(() => {
+        undoRedo.push(JSON.parse(JSON.stringify(units)));
+    }, [units, undoRedo]);
+
+    /** Zoom helpers */
+    const handleZoomIn = useCallback(() => setZoom(z => Math.min(3, z + 0.15)), []);
+    const handleZoomOut = useCallback(() => setZoom(z => Math.max(0.4, z - 0.15)), []);
+    const handleZoomReset = useCallback(() => setZoom(1), []);
+    const handleFitToView = useCallback(() => {
+        if (units.length === 0 || !viewportRef.current) return;
+        const vp = viewportRef.current;
+        let minX = Infinity, maxX = -Infinity, minY = Infinity, maxY = -Infinity;
+        for (const u of units) {
+            const cfg = unitConfig[u.type];
+            const px = u.gridX * GRID_CELL_SIZE;
+            const py = (10 - u.gridY) * UNIT_HEIGHT;
+            minX = Math.min(minX, px);
+            maxX = Math.max(maxX, px + cfg.cells * GRID_CELL_SIZE);
+            minY = Math.min(minY, py);
+            maxY = Math.max(maxY, py + UNIT_HEIGHT);
+        }
+        const contentW = maxX - minX + 120;
+        const contentH = maxY - minY + 120;
+        const newZoom = Math.min(vp.clientWidth / contentW, vp.clientHeight / contentH, 2);
+        setZoom(Math.max(0.4, newZoom));
+        requestAnimationFrame(() => {
+            vp.scrollLeft = (minX - 60) * newZoom;
+            vp.scrollTop = (minY - 60) * newZoom;
+        });
+    }, [units]);
+
+    /** Undo */
+    const handleUndo = useCallback(() => {
+        const prev = undoRedo.undo();
+        if (prev) setUnits(prev);
+    }, [undoRedo]);
+
+    /** Redo */
+    const handleRedo = useCallback(() => {
+        const next = undoRedo.redo();
+        if (next) setUnits(next);
+    }, [undoRedo]);
+
+    /** Multi-select toggle (Shift+Click handled in CanvasContent) */
+    const toggleSelect = useCallback((unitId: string, additive: boolean) => {
+        setSelectedIds(prev => {
+            const next = new Set(additive ? prev : []);
+            if (next.has(unitId)) next.delete(unitId);
+            else next.add(unitId);
+            return next;
+        });
+    }, []);
+    const clearSelection = useCallback(() => setSelectedIds(new Set()), []);
+
+    /** Bulk delete */
+    const handleBulkDelete = useCallback(async () => {
+        if (selectedIds.size === 0) return;
+        pushUndo();
+        const ids = Array.from(selectedIds);
+        for (const id of ids) {
+            await supabase.from('units').delete().eq('id', id);
+        }
+        setUnits(prev => prev.filter(u => !selectedIds.has(u.id)));
+        clearSelection();
+    }, [selectedIds, pushUndo, supabase, clearSelection]);
+
+    /** Bulk status change */
+    const handleBulkStatus = useCallback(async (status: string) => {
+        if (selectedIds.size === 0) return;
+        pushUndo();
+        const dbStatus = status === 'vacant' ? 'available' : status;
+        const ids = Array.from(selectedIds);
+        for (const id of ids) {
+            await supabase.from('units').update({ status: dbStatus }).eq('id', id);
+        }
+        setUnits(prev => prev.map(u =>
+            selectedIds.has(u.id)
+                ? { ...u, status: mapDbStatusToUi(status) }
+                : u
+        ));
+        clearSelection();
+    }, [selectedIds, pushUndo, supabase, clearSelection]);
+
+    /** Duplicate selected units with offset */
+    const handleDuplicate = useCallback(async () => {
+        if (selectedIds.size === 0) return;
+        pushUndo();
+        const toDup = units.filter(u => selectedIds.has(u.id));
+        const newUnits: Unit[] = [];
+        for (const u of toDup) {
+            const offsetX = u.gridX + unitConfig[u.type].cells + 1;
+            const unitNumber = `${u.gridY}${Math.floor(offsetX / 2) + 10}`;
+            const { data } = await supabase
+                .from('units')
+                .insert([{
+                    property_id: propertyId,
+                    unit_type: u.type,
+                    grid_x: offsetX,
+                    grid_y: u.gridY,
+                    unit_number: unitNumber,
+                    rent_amount: u.rentAmount ?? null,
+                    status: 'available',
+                }])
+                .select();
+            if (data?.[0]) {
+                const n = data[0];
+                newUnits.push({
+                    id: n.id,
+                    type: n.unit_type as UnitType,
+                    gridX: n.grid_x,
+                    gridY: n.grid_y,
+                    status: 'vacant',
+                    unitNumber: n.unit_number,
+                    rentAmount: n.rent_amount ?? undefined,
+                });
+            }
+        }
+        setUnits(prev => [...prev, ...newUnits]);
+        clearSelection();
+    }, [selectedIds, units, pushUndo, supabase, propertyId, clearSelection]);
+
+    /** Align selected units to same row (most common gridY) */
+    const handleAlignRow = useCallback(async () => {
+        if (selectedIds.size < 2) return;
+        pushUndo();
+        const sel = units.filter(u => selectedIds.has(u.id));
+        // Find most common gridY
+        const freq: Record<number, number> = {};
+        for (const u of sel) freq[u.gridY] = (freq[u.gridY] || 0) + 1;
+        const targetY = Number(Object.entries(freq).sort((a, b) => b[1] - a[1])[0][0]);
+        for (const u of sel) {
+            if (u.gridY !== targetY) {
+                await supabase.from('units').update({ grid_y: targetY }).eq('id', u.id);
+            }
+        }
+        setUnits(prev => prev.map(u =>
+            selectedIds.has(u.id) ? { ...u, gridY: targetY } : u
+        ));
+    }, [selectedIds, units, pushUndo, supabase]);
+
+    /** Distribute selected units evenly along X */
+    const handleDistribute = useCallback(async () => {
+        if (selectedIds.size < 2) return;
+        pushUndo();
+        const sel = units.filter(u => selectedIds.has(u.id)).sort((a, b) => a.gridX - b.gridX);
+        const startX = sel[0].gridX;
+        const endX = sel[sel.length - 1].gridX;
+        const gap = sel.length > 1 ? (endX - startX) / (sel.length - 1) : 0;
+        for (let i = 0; i < sel.length; i++) {
+            const newX = Math.round(startX + i * gap);
+            if (sel[i].gridX !== newX) {
+                await supabase.from('units').update({ grid_x: newX }).eq('id', sel[i].id);
+            }
+            sel[i] = { ...sel[i], gridX: newX };
+        }
+        const updatedMap = new Map(sel.map(u => [u.id, u.gridX]));
+        setUnits(prev => prev.map(u =>
+            updatedMap.has(u.id) ? { ...u, gridX: updatedMap.get(u.id)! } : u
+        ));
+    }, [selectedIds, units, pushUndo, supabase]);
+
+    /** Center selected units vertically to median floor */
+    const handleCenterVertical = useCallback(async () => {
+        if (selectedIds.size < 2) return;
+        pushUndo();
+        const sel = units.filter(u => selectedIds.has(u.id));
+        const floors = sel.map(u => u.gridY).sort((a, b) => a - b);
+        const median = floors[Math.floor(floors.length / 2)];
+        for (const u of sel) {
+            if (u.gridY !== median) {
+                await supabase.from('units').update({ grid_y: median }).eq('id', u.id);
+            }
+        }
+        setUnits(prev => prev.map(u =>
+            selectedIds.has(u.id) ? { ...u, gridY: median } : u
+        ));
+    }, [selectedIds, units, pushUndo, supabase]);
+
+    /** Pan-to for search highlight */
+    const handlePanTo = useCallback((gridX: number, gridY: number) => {
+        const vp = viewportRef.current;
+        if (!vp) return;
+        const px = gridX * GRID_CELL_SIZE * zoom;
+        const py = (10 - gridY) * UNIT_HEIGHT * zoom;
+        vp.scrollLeft = px - vp.clientWidth / 2;
+        vp.scrollTop = py - vp.clientHeight / 2;
+        // Clear highlight after 3 seconds
+        setTimeout(() => setHighlightedUnitId(null), 3000);
+    }, [zoom]);
+
+    /** Restore saved view */
+    const handleRestoreView = useCallback((view: SavedView) => {
+        setZoom(view.zoom);
+        requestAnimationFrame(() => {
+            const vp = viewportRef.current;
+            if (vp) {
+                vp.scrollLeft = view.scrollX;
+                vp.scrollTop = view.scrollY;
+            }
+        });
+    }, []);
+
+    // ═══ Keyboard Shortcuts ═══
+    useEffect(() => {
+        if (readOnly) return;
+        const handler = (e: KeyboardEvent) => {
+            const target = e.target as HTMLElement;
+            if (target.tagName === 'INPUT' || target.tagName === 'SELECT' || target.tagName === 'TEXTAREA') return;
+
+            // Z → Zoom In
+            if (e.key === 'z' && !e.ctrlKey && !e.metaKey) { handleZoomIn(); return; }
+            // X → Zoom Out
+            if (e.key === 'x' && !e.ctrlKey && !e.metaKey) { handleZoomOut(); return; }
+            // F → Fit to View
+            if (e.key === 'f' && !e.ctrlKey && !e.metaKey) { handleFitToView(); return; }
+            // H → Toggle HUD
+            if (e.key === 'h') { setHudVisible(p => !p); return; }
+            // G → Toggle grid
+            if (e.key === 'g') { setShowGrid(p => !p); return; }
+            // S → Toggle snap
+            if (e.key === 's' && !e.ctrlKey && !e.metaKey) { setSnapToGrid(p => !p); return; }
+            // Delete / Backspace → Delete selected
+            if (e.key === 'Delete' || e.key === 'Backspace') { handleBulkDelete(); return; }
+            // Ctrl+Z → Undo
+            if ((e.ctrlKey || e.metaKey) && e.key === 'z' && !e.shiftKey) { e.preventDefault(); handleUndo(); return; }
+            // Ctrl+Shift+Z or Ctrl+Y → Redo
+            if ((e.ctrlKey || e.metaKey) && (e.key === 'y' || (e.key === 'z' && e.shiftKey))) { e.preventDefault(); handleRedo(); return; }
+            // Ctrl+F → Search
+            if ((e.ctrlKey || e.metaKey) && e.key === 'f') { e.preventDefault(); setSearchOpen(true); return; }
+            // Ctrl+D → Duplicate
+            if ((e.ctrlKey || e.metaKey) && e.key === 'd') { e.preventDefault(); handleDuplicate(); return; }
+            // Ctrl+A → Select all
+            if ((e.ctrlKey || e.metaKey) && e.key === 'a') { e.preventDefault(); setSelectedIds(new Set(units.map(u => u.id))); return; }
+            // Escape → Clear selection / close search
+            if (e.key === 'Escape') { clearSelection(); setSearchOpen(false); setSavedViewsOpen(false); return; }
+        };
+        window.addEventListener('keydown', handler);
+        return () => window.removeEventListener('keydown', handler);
+    }, [readOnly, handleZoomIn, handleZoomOut, handleFitToView, handleBulkDelete, handleUndo, handleRedo, handleDuplicate, units, clearSelection]);
 
     // --- Drag Logic ---
 
@@ -246,6 +520,8 @@ export default function VisualBuilder({
 
         if (!finalGhost || !finalGhost.valid || !over) return;
 
+        pushUndo(); // ← Save state before any mutation
+
         // DELETE ACTION
         if (over.id === 'trash-zone' && !active.data.current?.isPreset) {
             const { error } = await supabase
@@ -324,6 +600,7 @@ export default function VisualBuilder({
     const handleEditSave = async () => {
         if (!editingUnit) return;
         setIsSaving(true);
+        pushUndo();
 
         const dbStatus = editForm.status === 'vacant' ? 'available' : editForm.status;
 
@@ -357,6 +634,7 @@ export default function VisualBuilder({
     const handleEditDelete = async () => {
         if (!editingUnit) return;
         setIsSaving(true);
+        pushUndo();
         const { error } = await supabase
             .from('units')
             .delete()
@@ -395,6 +673,18 @@ export default function VisualBuilder({
                         transformOrigin: '0 0',
                         position: 'relative',
                     }}>
+                        {/* ═══ QoL: Grid Overlay ═══ */}
+                        {showGrid && (
+                            <div style={{
+                                position: 'absolute',
+                                inset: 0,
+                                backgroundSize: `${GRID_CELL_SIZE}px ${GRID_CELL_SIZE}px`,
+                                backgroundImage: 'linear-gradient(to right, rgba(71, 85, 105, 0.18) 1px, transparent 1px), linear-gradient(to bottom, rgba(71, 85, 105, 0.18) 1px, transparent 1px)',
+                                pointerEvents: 'none',
+                                zIndex: 1,
+                            }} />
+                        )}
+
                         <CanvasContent
                             units={units}
                             ghost={ghostState}
@@ -406,6 +696,9 @@ export default function VisualBuilder({
                             currentUserUnitId={currentUserUnitId}
                             currentUserInitials={currentUserInitials}
                             currentUserAvatarUrl={currentUserAvatarUrl}
+                            selectedIds={selectedIds}
+                            onToggleSelect={toggleSelect}
+                            highlightedUnitId={highlightedUnitId}
                         />
 
                         {/* Floor Labels */}
@@ -417,8 +710,93 @@ export default function VisualBuilder({
                     </div>
                 </div>
 
+                {/* ═══ QoL: HUD Toggle Button (always visible) ═══ */}
+                <button
+                    type="button"
+                    onClick={() => setHudVisible(p => !p)}
+                    title={hudVisible ? 'Hide HUD (H)' : 'Show HUD (H)'}
+                    style={{
+                        position: 'absolute',
+                        top: 12,
+                        left: 12,
+                        width: 32,
+                        height: 32,
+                        display: 'flex',
+                        alignItems: 'center',
+                        justifyContent: 'center',
+                        background: hudVisible ? 'rgba(15, 23, 42, 0.92)' : 'rgba(15, 23, 42, 0.6)',
+                        border: '1px solid #334155',
+                        borderRadius: 8,
+                        color: hudVisible ? '#e2e8f0' : '#64748b',
+                        cursor: 'pointer',
+                        zIndex: 95,
+                        backdropFilter: 'blur(8px)',
+                        transition: 'all 0.2s',
+                    }}
+                >
+                    {hudVisible ? <Eye size={15} /> : <EyeOff size={15} />}
+                </button>
+
+                {/* ═══ QoL: Mini-Map ═══ */}
+                {hudVisible && (
+                    <MiniMap
+                        units={units}
+                        viewportRef={viewportRef}
+                        zoom={zoom}
+                    />
+                )}
+
+                {/* ═══ QoL: Builder Toolbar (edit mode only) ═══ */}
+                {hudVisible && !readOnly && (
+                    <BuilderToolbar
+                        zoom={zoom}
+                        onZoomIn={handleZoomIn}
+                        onZoomOut={handleZoomOut}
+                        onZoomReset={handleZoomReset}
+                        onFitToView={handleFitToView}
+                        showGrid={showGrid}
+                        onToggleGrid={() => setShowGrid(p => !p)}
+                        snapToGrid={snapToGrid}
+                        onToggleSnap={() => setSnapToGrid(p => !p)}
+                        canUndo={undoRedo.canUndo}
+                        canRedo={undoRedo.canRedo}
+                        onUndo={handleUndo}
+                        onRedo={handleRedo}
+                        selectionCount={selectedIds.size}
+                        onBulkDelete={handleBulkDelete}
+                        onBulkStatus={handleBulkStatus}
+                        onDuplicate={handleDuplicate}
+                        onAlignRow={handleAlignRow}
+                        onDistribute={handleDistribute}
+                        onCenterVertical={handleCenterVertical}
+                        onOpenSearch={() => setSearchOpen(true)}
+                        onOpenSavedViews={() => setSavedViewsOpen(p => !p)}
+                    />
+                )}
+
+                {/* ═══ QoL: Canvas Search ═══ */}
+                {hudVisible && <CanvasSearch
+                    units={units}
+                    open={searchOpen}
+                    onClose={() => setSearchOpen(false)}
+                    onHighlight={setHighlightedUnitId}
+                    onPanTo={handlePanTo}
+                />
+
+                }
+
+                {/* ═══ QoL: Saved Views ═══ */}
+                {hudVisible && <SavedViews
+                    propertyId={propertyId}
+                    open={savedViewsOpen}
+                    onClose={() => setSavedViewsOpen(false)}
+                    currentZoom={zoom}
+                    viewportRef={viewportRef}
+                    onRestoreView={handleRestoreView}
+                />}
+
                 {/* Float Controls */}
-                <div style={{ position: 'absolute', bottom: '2rem', left: '2rem', right: '2rem', display: 'flex', justifyContent: 'space-between', alignItems: 'flex-end', zIndex: 60, pointerEvents: 'none' }}>
+                {hudVisible && <div style={{ position: 'absolute', bottom: '2rem', left: '2rem', right: '2rem', display: 'flex', justifyContent: 'space-between', alignItems: 'flex-end', zIndex: 60, pointerEvents: 'none' }}>
 
                     <div style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem' }}>
                         {/* Legend */}
@@ -489,7 +867,7 @@ export default function VisualBuilder({
                             )}
                         </div>
                     </div>
-                </div>
+                </div>}
 
                 {!readOnly && (
                     <>
@@ -661,7 +1039,10 @@ function CanvasContent({
     onUnitMessageClick,
     currentUserUnitId,
     currentUserInitials,
-    currentUserAvatarUrl
+    currentUserAvatarUrl,
+    selectedIds,
+    onToggleSelect,
+    highlightedUnitId,
 }: {
     units: Unit[];
     ghost: GhostState | null;
@@ -673,6 +1054,9 @@ function CanvasContent({
     currentUserUnitId?: string | null;
     currentUserInitials?: string;
     currentUserAvatarUrl?: string | null;
+    selectedIds?: Set<string>;
+    onToggleSelect?: (unitId: string, additive: boolean) => void;
+    highlightedUnitId?: string | null;
 }) {
     // ... (inside DraggableUnit function later in file)
     const { setNodeRef } = useDroppable({ id: 'canvas-droppable' });
@@ -711,8 +1095,15 @@ function CanvasContent({
                         unit={unit}
                         totalRows={GRID_ROWS}
                         readOnly={readOnly}
-                        isSelected={selectedUnitId === unit.id}
-                        onUnitClick={onUnitClick}
+                        isSelected={selectedUnitId === unit.id || (selectedIds?.has(unit.id) ?? false)}
+                        isHighlighted={highlightedUnitId === unit.id}
+                        onUnitClick={(id) => {
+                            // Multi-select with Shift held
+                            onUnitClick?.(id);
+                        }}
+                        onShiftClick={(id) => {
+                            onToggleSelect?.(id, true);
+                        }}
                         onUnitMessageClick={onUnitMessageClick}
                         currentUserUnitId={currentUserUnitId}
                         currentUserInitials={currentUserInitials}
@@ -783,7 +1174,9 @@ function DraggableUnit({
     totalRows,
     readOnly,
     isSelected,
+    isHighlighted,
     onUnitClick,
+    onShiftClick,
     onUnitMessageClick,
     currentUserUnitId,
     currentUserInitials,
@@ -793,7 +1186,9 @@ function DraggableUnit({
     totalRows: number;
     readOnly: boolean;
     isSelected: boolean;
+    isHighlighted?: boolean;
     onUnitClick?: (unitId: string) => void;
+    onShiftClick?: (unitId: string) => void;
     onUnitMessageClick?: (unitId: string) => void;
     currentUserUnitId?: string | null;
     currentUserInitials?: string;
@@ -859,7 +1254,8 @@ function DraggableUnit({
     const showTooltip = readOnly && isTooltipVisible;
     const showHoverGlow = isHovered && readOnly;
     const showSelectGlow = isSelected;
-    const glowVariant: 'selected' | 'hover' | null = showSelectGlow ? 'selected' : showHoverGlow ? 'hover' : null;
+    const showHighlight = !!isHighlighted;
+    const glowVariant: 'selected' | 'hover' | 'highlighted' | null = showHighlight ? 'highlighted' : showSelectGlow ? 'selected' : showHoverGlow ? 'hover' : null;
     const tooltipTitle = unit.id === currentUserUnitId
         ? 'This is where you are'
         : unit.tenantName && unit.tenantName !== 'Resident'
@@ -952,7 +1348,11 @@ function DraggableUnit({
             onClick={(e) => {
                 // Prevent click when drag was in progress (pointer moved > 5px)
                 if (unit.type !== 'stairs') {
-                    onUnitClick?.(unit.id);
+                    if (e.shiftKey && onShiftClick) {
+                        onShiftClick(unit.id);
+                    } else {
+                        onUnitClick?.(unit.id);
+                    }
                 }
             }}
             onPointerEnter={openTooltip}
@@ -1067,10 +1467,12 @@ function DraggableUnit({
                                 position: 'absolute',
                                 inset: 0,
                                 pointerEvents: 'none',
-                                boxShadow: glowVariant === 'selected'
+                                boxShadow: glowVariant === 'highlighted'
+                                    ? 'inset 0 0 0 2px rgba(34, 197, 94, 0.7)'
+                                    : glowVariant === 'selected'
                                     ? 'inset 0 0 0 2px rgba(96, 165, 250, 0.55)'
                                     : 'inset 0 0 0 2px rgba(37, 99, 235, 0.38)',
-                                opacity: glowVariant === 'selected' ? 1 : 0.95
+                                opacity: glowVariant === 'selected' || glowVariant === 'highlighted' ? 1 : 0.95
                             }}
                         />
                     )}
@@ -1080,9 +1482,11 @@ function DraggableUnit({
                                 position: 'absolute',
                                 inset: 0,
                                 pointerEvents: 'none',
-                                opacity: glowVariant === 'selected' ? 1 : 0.85,
+                                opacity: glowVariant === 'selected' || glowVariant === 'highlighted' ? 1 : 0.85,
                                 mixBlendMode: 'screen',
-                                background: glowVariant === 'selected'
+                                background: glowVariant === 'highlighted'
+                                    ? 'radial-gradient(circle at center, rgba(34, 197, 94, 0) 40%, rgba(34, 197, 94, 0.2) 70%, rgba(34, 197, 94, 0.4) 100%)'
+                                    : glowVariant === 'selected'
                                     ? 'radial-gradient(circle at center, rgba(96, 165, 250, 0) 44%, rgba(96, 165, 250, 0.18) 72%, rgba(96, 165, 250, 0.32) 100%)'
                                     : 'radial-gradient(circle at center, rgba(37, 99, 235, 0) 46%, rgba(37, 99, 235, 0.14) 74%, rgba(37, 99, 235, 0.24) 100%)'
                             }}

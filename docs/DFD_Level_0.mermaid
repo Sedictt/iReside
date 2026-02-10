@@ -1,0 +1,91 @@
+%% ============================================================
+%% DFD Level 0 — Context Diagram
+%% System  : iReside – Multi-Unit Rental Management Platform
+%% Scope   : Barangay Marulas, Valenzuela City
+%% Date    : 2026-02-10
+%% ============================================================
+
+flowchart TD
+
+    %% ── External Entities ──────────────────────────────────────
+    TENANT([<b>Tenant</b><br/>Prospective &amp; Active Renter])
+    LANDLORD([<b>Landlord</b><br/>Property Owner / Manager])
+    ADMIN([<b>System Administrator</b><br/>Platform Moderator])
+
+    %% ── Central Process ────────────────────────────────────────
+    SYSTEM{{"<b>0</b><br/>iReside<br/>Multi-Unit Rental<br/>Management System"}}
+
+    %% ── Tenant → System ────────────────────────────────────────
+    TENANT -- "Registration &amp; Login Credentials" --> SYSTEM
+    TENANT -- "Property Search Queries &amp; Filters<br/>(location, radius, price, amenities)" --> SYSTEM
+    TENANT -- "Unit Inquiry Details<br/>(name, contact, preferred move-in date, message)" --> SYSTEM
+    TENANT -- "Lease Signature (canvas-based)" --> SYSTEM
+    TENANT -- "Maintenance Request<br/>(title, description, priority)" --> SYSTEM
+    TENANT -- "Chat Messages to Landlord" --> SYSTEM
+    TENANT -- "Community Issue Reports<br/>(category, description, target unit)" --> SYSTEM
+    TENANT -- "AI Concierge Questions" --> SYSTEM
+    TENANT -- "Payment Receipt Upload &amp; Reference Number" --> SYSTEM
+
+    %% ── System → Tenant ────────────────────────────────────────
+    SYSTEM -- "Auth Confirmation &amp; Session Token" --> TENANT
+    SYSTEM -- "Listing Search Results<br/>(property details, photos, map pins)" --> TENANT
+    SYSTEM -- "Inquiry Status Updates<br/>(submitted, read, replied)" --> TENANT
+    SYSTEM -- "Lease Agreement &amp; Signing Status" --> TENANT
+    SYSTEM -- "Maintenance Request Status Updates" --> TENANT
+    SYSTEM -- "Real-time Chat Messages from Landlord" --> TENANT
+    SYSTEM -- "Community Issue Responses &amp; Neighbor List" --> TENANT
+    SYSTEM -- "AI Concierge Answers" --> TENANT
+    SYSTEM -- "Invoice &amp; Payment Status<br/>(pending, paid, overdue)" --> TENANT
+    SYSTEM -- "Dashboard Summary<br/>(lease, payments, quick actions)" --> TENANT
+
+    %% ── Landlord → System ──────────────────────────────────────
+    LANDLORD -- "Registration &amp; Login Credentials" --> SYSTEM
+    LANDLORD -- "Landlord Application<br/>(business name, gov't ID, ownership docs)" --> SYSTEM
+    LANDLORD -- "Property &amp; Unit Data<br/>(type, rent, status, floor plan layout)" --> SYSTEM
+    LANDLORD -- "Listing Details<br/>(description, photos, amenities, rules, pricing, SEO)" --> SYSTEM
+    LANDLORD -- "Inquiry Decision<br/>(approve / reject)" --> SYSTEM
+    LANDLORD -- "Lease Creation Details<br/>(unit, dates, rent amount)" --> SYSTEM
+    LANDLORD -- "Landlord Counter-Signature" --> SYSTEM
+    LANDLORD -- "Chat Messages to Tenant" --> SYSTEM
+    LANDLORD -- "Financial Transactions<br/>(income &amp; expense entries)" --> SYSTEM
+    LANDLORD -- "Invoice Details<br/>(tenant, amount, due date)" --> SYSTEM
+    LANDLORD -- "Payment Approval / Rejection" --> SYSTEM
+    LANDLORD -- "Task Details<br/>(title, priority, due date, property)" --> SYSTEM
+    LANDLORD -- "Maintenance Status Updates<br/>(open → in progress → resolved)" --> SYSTEM
+    LANDLORD -- "AI Concierge Knowledge Base<br/>(Q&amp;A entries per property)" --> SYSTEM
+    LANDLORD -- "GCash QR &amp; Payment Method Setup" --> SYSTEM
+    LANDLORD -- "Profile &amp; Settings Updates" --> SYSTEM
+
+    %% ── System → Landlord ──────────────────────────────────────
+    SYSTEM -- "Auth Confirmation &amp; Session Token" --> LANDLORD
+    SYSTEM -- "Application Status<br/>(pending, approved, rejected)" --> LANDLORD
+    SYSTEM -- "Dashboard KPIs<br/>(revenue, occupancy, active tenants, issues)" --> LANDLORD
+    SYSTEM -- "Property &amp; Unit Inventory<br/>(status, tenant, rent)" --> LANDLORD
+    SYSTEM -- "Unit Map / Visual Layout<br/>(color-coded status)" --> LANDLORD
+    SYSTEM -- "Listing Performance Metrics<br/>(views, inquiries)" --> LANDLORD
+    SYSTEM -- "Incoming Inquiries<br/>(tenant details, messages)" --> LANDLORD
+    SYSTEM -- "Lease Records &amp; Signature Status" --> LANDLORD
+    SYSTEM -- "Real-time Chat Messages from Tenant" --> LANDLORD
+    SYSTEM -- "Financial Reports &amp; Statistics<br/>(revenue, expenses, charts)" --> LANDLORD
+    SYSTEM -- "Invoice Status Summary<br/>(paid, pending, overdue)" --> LANDLORD
+    SYSTEM -- "Payment Submissions for Review<br/>(receipt, reference #)" --> LANDLORD
+    SYSTEM -- "Task List &amp; Progress" --> LANDLORD
+    SYSTEM -- "Maintenance Requests &amp; AI Analysis<br/>(category, severity, cost estimate)" --> LANDLORD
+    SYSTEM -- "Tenant Directory<br/>(active leases, contact info)" --> LANDLORD
+    SYSTEM -- "Alerts &amp; Notifications" --> LANDLORD
+
+    %% ── Admin → System ─────────────────────────────────────────
+    ADMIN -- "Admin Login Credentials" --> SYSTEM
+    ADMIN -- "Application Review Decision<br/>(approve / reject with reason)" --> SYSTEM
+
+    %% ── System → Admin ─────────────────────────────────────────
+    SYSTEM -- "Auth Confirmation &amp; Admin Session" --> ADMIN
+    SYSTEM -- "Landlord Application Queue<br/>(applicant details, documents)" --> ADMIN
+    SYSTEM -- "Review Audit Trail<br/>(timestamps, decisions, reasons)" --> ADMIN
+
+    %% ── Styling ────────────────────────────────────────────────
+    classDef entity fill:#4A90D9,stroke:#2C5F8A,stroke-width:2px,color:#fff,font-size:14px
+    classDef process fill:#F5A623,stroke:#D48806,stroke-width:3px,color:#fff,font-size:16px
+
+    class TENANT,LANDLORD,ADMIN entity
+    class SYSTEM process
