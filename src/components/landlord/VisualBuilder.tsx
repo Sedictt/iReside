@@ -14,6 +14,7 @@ import MiniMap from './visual-builder/MiniMap';
 import BuilderToolbar from './visual-builder/BuilderToolbar';
 import CanvasSearch from './visual-builder/CanvasSearch';
 import SavedViews, { type SavedView } from './visual-builder/SavedViews';
+import styles from './DraggableUnit.module.css';
 
 type UnitType = 'studio' | '1br' | '2br' | '3br' | 'dorm' | 'stairs';
 type MapTileType = 'corridor';
@@ -73,7 +74,7 @@ type InitialTile = {
 type GhostState = { x: number; y: number; widthCells: number; heightCells: number; valid: boolean };
 
 // Config
-const GRID_CELL_SIZE = 40;
+const GRID_CELL_SIZE = 80;
 
 const DEFAULT_UNIT_CONFIG = { width: 3, height: 2, label: 'Unit' };
 const unitConfig: Record<string, { width: number; height: number; label: string }> = {
@@ -204,6 +205,7 @@ export default function VisualBuilder({
         new Set(['vacant', 'occupied', 'maintenance', 'neardue'])
     );
     const [priceFilter, setPriceFilter] = useState<{ min: string; max: string }>({ min: '', max: '' });
+    const [isSidebarOpen, setIsSidebarOpen] = useState(true);
     const [showStairs, setShowStairs] = useState(true);
     const [filtersOpen, setFiltersOpen] = useState(false);
 
@@ -837,12 +839,12 @@ export default function VisualBuilder({
         const finalGhost = ghostState;
         setGhostState(null);
 
-        if (!finalGhost || !finalGhost.valid || !over) return;
+        if (!finalGhost || !finalGhost.valid) return;
 
         pushUndo(); // ← Save state before any mutation
 
         // DELETE ACTION
-        if (over.id === 'trash-zone' && !active.data.current?.isPreset) {
+        if (over?.id === 'trash-zone' && !active.data.current?.isPreset) {
             const { error } = await supabase
                 .from('units')
                 .delete()
@@ -954,6 +956,7 @@ export default function VisualBuilder({
             status: unit.status,
             type: unit.type,
         });
+        setIsSidebarOpen(true);
     };
 
     const handleEditSave = async () => {
@@ -1041,10 +1044,11 @@ export default function VisualBuilder({
 
     const floorOptions = useMemo(() => {
         const floors = new Set<number>([1]);
+        floors.add(activeFloor);
         units.forEach((unit) => floors.add(unit.floor));
         tiles.forEach((tile) => floors.add(tile.floor));
         return Array.from(floors).sort((a, b) => a - b);
-    }, [units, tiles]);
+    }, [units, tiles, activeFloor]);
 
     useEffect(() => {
         if (!floorOptions.includes(activeFloor)) {
@@ -1055,6 +1059,11 @@ export default function VisualBuilder({
     useEffect(() => {
         setSelectedIds(new Set());
         setEditingUnit(null);
+        // Auto-center view when switching floors
+        const timer = setTimeout(() => {
+            handleFitToView();
+        }, 50);
+        return () => clearTimeout(timer);
     }, [activeFloor]);
 
     const floorUnits = useMemo(() => units.filter((unit) => unit.floor === activeFloor), [units, activeFloor]);
@@ -1090,6 +1099,38 @@ export default function VisualBuilder({
         return {
             width: Math.max(1200, (maxX + 6) * GRID_CELL_SIZE),
             height: Math.max(800, (maxY + 6) * GRID_CELL_SIZE)
+        };
+    }, [floorUnits, floorTiles]);
+
+    const buildingBounds = useMemo(() => {
+        let minX = Infinity;
+        let minY = Infinity;
+        let maxX = -Infinity;
+        let maxY = -Infinity;
+
+        for (const unit of floorUnits) {
+            const cfg = getUnitConfig(unit.type);
+            minX = Math.min(minX, unit.gridX);
+            minY = Math.min(minY, unit.gridY);
+            maxX = Math.max(maxX, unit.gridX + cfg.width);
+            maxY = Math.max(maxY, unit.gridY + cfg.height);
+        }
+
+        for (const tile of floorTiles) {
+            minX = Math.min(minX, tile.gridX);
+            minY = Math.min(minY, tile.gridY);
+            maxX = Math.max(maxX, tile.gridX + 1);
+            maxY = Math.max(maxY, tile.gridY + 1);
+        }
+
+        if (!Number.isFinite(minX) || !Number.isFinite(minY)) return null;
+
+        const padding = 1;
+        return {
+            x: minX - padding,
+            y: minY - padding,
+            width: (maxX - minX) + padding * 2,
+            height: (maxY - minY) + padding * 2
         };
     }, [floorUnits, floorTiles]);
 
@@ -1149,6 +1190,7 @@ export default function VisualBuilder({
                         <CanvasContent
                             units={filteredUnits}
                             tiles={floorTiles}
+                            buildingBounds={buildingBounds}
                             ghost={ghostState}
                             activeId={activeId}
                             readOnly={readOnly}
@@ -1199,39 +1241,92 @@ export default function VisualBuilder({
                     {hudVisible ? <Eye size={15} /> : <EyeOff size={15} />}
                 </button>
 
-                {hudVisible && floorOptions.length > 1 && readOnly && (
+                {/* ═══ QoL: Game-Style Vertical Floor Switcher ═══ */}
+                {hudVisible && (floorOptions.length > 1 || !readOnly) && (
                     <div style={{
                         position: 'absolute',
-                        top: 12,
-                        right: 12,
+                        bottom: 180, // Above minimap area
+                        right: isSidebarOpen ? 300 : 20, // Responsive to sidebar
                         display: 'flex',
-                        alignItems: 'center',
-                        gap: 8,
-                        background: 'rgba(15, 23, 42, 0.9)',
-                        border: '1px solid #334155',
-                        borderRadius: 10,
-                        padding: '6px 10px',
-                        zIndex: 90
+                        flexDirection: 'column',
+                        gap: 6,
+                        zIndex: 90,
+                        transition: 'right 0.3s ease-in-out'
                     }}>
-                        <span style={{ color: '#94a3b8', fontSize: '0.7rem', fontWeight: 700 }}>Floor</span>
-                        <select
-                            value={activeFloor}
-                            onChange={(event) => setActiveFloor(Number(event.target.value))}
-                            style={{
-                                background: 'rgba(15, 23, 42, 0.85)',
-                                border: '1px solid #334155',
-                                borderRadius: 6,
-                                color: '#e2e8f0',
-                                fontSize: '0.75rem',
-                                fontWeight: 700,
-                                padding: '2px 6px',
-                                cursor: 'pointer'
-                            }}
-                        >
-                            {floorOptions.map((floor) => (
-                                <option key={floor} value={floor}>Floor {floor}</option>
-                            ))}
-                        </select>
+                        {/* Label/Header */}
+                        <div style={{
+                            textAlign: 'center',
+                            color: '#e2e8f0',
+                            fontSize: '0.65rem',
+                            fontWeight: 800,
+                            textTransform: 'uppercase',
+                            letterSpacing: '0.1em',
+                            marginBottom: 4,
+                            textShadow: '0 2px 4px rgba(0,0,0,0.5)'
+                        }}>
+                            Levels
+                        </div>
+
+                        {[...floorOptions].reverse().map((floor) => (
+                            <button
+                                key={floor}
+                                type="button"
+                                onClick={() => setActiveFloor(floor)}
+                                style={{
+                                    width: 40,
+                                    height: 40,
+                                    borderRadius: 8,
+                                    border: activeFloor === floor
+                                        ? '1px solid #6366f1'
+                                        : '1px solid rgba(255,255,255,0.1)',
+                                    background: activeFloor === floor
+                                        ? 'rgba(99, 102, 241, 0.9)'
+                                        : 'rgba(15, 23, 42, 0.8)',
+                                    color: activeFloor === floor ? 'white' : '#94a3b8',
+                                    fontSize: '0.9rem',
+                                    fontWeight: 800,
+                                    cursor: 'pointer',
+                                    backdropFilter: 'blur(8px)',
+                                    boxShadow: activeFloor === floor
+                                        ? '0 0 15px rgba(99, 102, 241, 0.5)'
+                                        : '0 4px 6px rgba(0,0,0,0.3)',
+                                    display: 'flex',
+                                    alignItems: 'center',
+                                    justifyContent: 'center',
+                                    transition: 'all 0.2s cubic-bezier(0.34, 1.56, 0.64, 1)',
+                                    transform: activeFloor === floor ? 'scale(1.1)' : 'scale(1)'
+                                }}
+                            >
+                                {floor}
+                            </button>
+                        ))}
+
+                        {/* Add Floor Button */}
+                        {!readOnly && (
+                            <button
+                                type="button"
+                                onClick={() => setActiveFloor(Math.max(...floorOptions, 0) + 1)}
+                                title="Add Floor"
+                                style={{
+                                    width: 40,
+                                    height: 30, // Slightly shorter
+                                    borderRadius: 8,
+                                    border: '1px dashed #64748b',
+                                    background: 'rgba(15, 23, 42, 0.6)',
+                                    color: '#94a3b8',
+                                    fontSize: '0.8rem',
+                                    cursor: 'pointer',
+                                    display: 'flex',
+                                    alignItems: 'center',
+                                    justifyContent: 'center',
+                                    backdropFilter: 'blur(4px)',
+                                    marginTop: 4,
+                                    transition: 'all 0.2s'
+                                }}
+                            >
+                                <Plus size={16} />
+                            </button>
+                        )}
                     </div>
                 )}
 
@@ -1244,7 +1339,7 @@ export default function VisualBuilder({
                         zoom={zoom}
                         worldWidth={worldSize.width}
                         worldHeight={worldSize.height}
-                        rightOffset={readOnly ? 12 : 292}
+                        rightOffset={readOnly ? 12 : (isSidebarOpen ? 292 : 12)}
                     />
                 )}
 
@@ -1473,7 +1568,7 @@ export default function VisualBuilder({
                             </div>
                         </div>
 
-                            <div style={{ display: 'flex', gap: '0.5rem', pointerEvents: 'auto' }}>
+                        <div style={{ display: 'flex', gap: '0.5rem', pointerEvents: 'auto' }}>
                             <div style={{ padding: '0.5rem 1rem', background: 'rgba(30, 41, 59, 0.8)', color: 'white', borderRadius: '8px', fontSize: '0.8rem', border: '1px solid #475569' }}>
                                 Ctrl + Scroll to Zoom • Arrow keys to Nudge • Alt + Paint to Erase
                             </div>
@@ -1511,221 +1606,268 @@ export default function VisualBuilder({
                 {!readOnly && (
                     <>
                         {/* Sidebar */}
-                        <aside style={{ width: '280px', background: '#1e293b', borderLeft: '1px solid #475569', display: 'flex', flexDirection: 'column', zIndex: 50 }}>
-                            {editingUnit ? (
-                                /* EDIT PANEL */
-                                <>
-                                    <div style={{ padding: '1.25rem 1.5rem', borderBottom: '1px solid #334155', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-                                        <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
-                                            <Pencil size={16} color="#818cf8" />
-                                            <h2 style={{ color: 'white', fontWeight: 700, fontSize: '1.1rem' }}>Edit Unit</h2>
-                                        </div>
-                                        <button
-                                            onClick={() => setEditingUnit(null)}
-                                            style={{ background: 'none', border: 'none', color: '#94a3b8', cursor: 'pointer', padding: 4 }}
-                                        >
-                                            <X size={18} />
-                                        </button>
-                                    </div>
-                                    <div style={{ flex: 1, padding: '1.5rem', display: 'flex', flexDirection: 'column', gap: '1.25rem', overflowY: 'auto' }}>
-                                        {/* Unit Type */}
-                                        <div style={{ display: 'flex', flexDirection: 'column', gap: '0.4rem' }}>
-                                            <label style={{ color: '#94a3b8', fontSize: '0.75rem', fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.05em' }}>Unit Type</label>
-                                            <select
-                                                value={editForm.type}
-                                                onChange={e => setEditForm(f => ({ ...f, type: e.target.value as UnitType }))}
-                                                style={{ padding: '0.6rem 0.75rem', background: '#0f172a', border: '1px solid #334155', borderRadius: 8, color: '#f1f5f9', fontSize: '0.85rem', outline: 'none' }}
-                                            >
-                                                <option value="studio">Studio</option>
-                                                <option value="1br">1 Bedroom</option>
-                                                <option value="2br">2 Bedroom</option>
-                                                <option value="3br">3 Bedroom</option>
-                                                <option value="dorm">Dorm</option>
-                                            </select>
-                                        </div>
-
-                                        {/* Unit Number */}
-                                        <div style={{ display: 'flex', flexDirection: 'column', gap: '0.4rem' }}>
-                                            <label style={{ color: '#94a3b8', fontSize: '0.75rem', fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.05em' }}>Unit Number</label>
-                                            <input
-                                                type="text"
-                                                value={editForm.unitNumber}
-                                                onChange={e => setEditForm(f => ({ ...f, unitNumber: e.target.value }))}
-                                                placeholder="e.g. 101"
-                                                style={{ padding: '0.6rem 0.75rem', background: '#0f172a', border: '1px solid #334155', borderRadius: 8, color: '#f1f5f9', fontSize: '0.85rem', outline: 'none' }}
-                                            />
-                                        </div>
-
-                                        {/* Rent Amount */}
-                                        <div style={{ display: 'flex', flexDirection: 'column', gap: '0.4rem' }}>
-                                            <label style={{ color: '#94a3b8', fontSize: '0.75rem', fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.05em' }}>Rent Amount (₱)</label>
-                                            <input
-                                                type="number"
-                                                value={editForm.rentAmount}
-                                                onChange={e => setEditForm(f => ({ ...f, rentAmount: e.target.value }))}
-                                                placeholder="e.g. 1500"
-                                                style={{ padding: '0.6rem 0.75rem', background: '#0f172a', border: '1px solid #334155', borderRadius: 8, color: '#f1f5f9', fontSize: '0.85rem', outline: 'none' }}
-                                            />
-                                        </div>
-
-                                        {/* Status */}
-                                        <div style={{ display: 'flex', flexDirection: 'column', gap: '0.4rem' }}>
-                                            <label style={{ color: '#94a3b8', fontSize: '0.75rem', fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.05em' }}>Status</label>
-                                            <select
-                                                value={editForm.status}
-                                                onChange={e => setEditForm(f => ({ ...f, status: e.target.value }))}
-                                                style={{ padding: '0.6rem 0.75rem', background: '#0f172a', border: '1px solid #334155', borderRadius: 8, color: '#f1f5f9', fontSize: '0.85rem', outline: 'none' }}
-                                            >
-                                                <option value="vacant">Vacant</option>
-                                                <option value="occupied">Occupied</option>
-                                                <option value="maintenance">Maintenance</option>
-                                            </select>
-                                        </div>
-
-                                        {/* Grid Position (read-only info) */}
-                                        <div style={{ padding: '0.75rem', background: '#0f172a', borderRadius: 8, border: '1px solid #334155' }}>
-                                            <div style={{ color: '#64748b', fontSize: '0.7rem', fontWeight: 600, textTransform: 'uppercase', marginBottom: '0.35rem' }}>Position</div>
-                                            <div style={{ color: '#94a3b8', fontSize: '0.8rem' }}>Floor {editingUnit.floor} &bull; Row {editingUnit.gridY} &bull; Column {editingUnit.gridX}</div>
-                                        </div>
-
-                                        {detailUnit && (
-                                            <div style={{ padding: '0.75rem', background: '#0f172a', borderRadius: 8, border: '1px solid #334155', display: 'flex', flexDirection: 'column', gap: '0.6rem' }}>
-                                                <div style={{ color: '#64748b', fontSize: '0.7rem', fontWeight: 600, textTransform: 'uppercase' }}>Details</div>
-                                                <div style={{ color: '#e2e8f0', fontSize: '0.8rem', display: 'grid', gap: 4 }}>
-                                                    <div><span style={{ color: '#94a3b8' }}>Tenant:</span> {detailUnit.tenantName || (detailUnit.status === 'vacant' ? 'Vacant' : 'Unknown')}</div>
-                                                    <div><span style={{ color: '#94a3b8' }}>Lease:</span> {detailLease}</div>
-                                                    <div><span style={{ color: '#94a3b8' }}>Rent:</span> {detailRent}</div>
-                                                    <div><span style={{ color: '#94a3b8' }}>Last updated:</span> {detailUpdatedAt ? new Date(detailUpdatedAt).toLocaleString() : 'Unknown'}</div>
-                                                </div>
+                        <aside style={{
+                            width: isSidebarOpen ? '280px' : '0px',
+                            background: '#1e293b',
+                            borderLeft: isSidebarOpen ? '1px solid #475569' : 'none',
+                            display: 'flex',
+                            flexDirection: 'column',
+                            zIndex: 50,
+                            transition: 'width 0.3s ease-in-out',
+                            overflow: 'hidden',
+                            position: 'relative'
+                        }}>
+                            <div style={{ width: 280, height: '100%', display: 'flex', flexDirection: 'column' }}>
+                                {editingUnit ? (
+                                    /* EDIT PANEL */
+                                    <>
+                                        <div style={{ padding: '1.25rem 1.5rem', borderBottom: '1px solid #334155', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+                                            <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+                                                <Pencil size={16} color="#818cf8" />
+                                                <h2 style={{ color: 'white', fontWeight: 700, fontSize: '1.1rem' }}>Edit Unit</h2>
                                             </div>
-                                        )}
+                                            <button
+                                                onClick={() => setEditingUnit(null)}
+                                                style={{ background: 'none', border: 'none', color: '#94a3b8', cursor: 'pointer', padding: 4 }}
+                                            >
+                                                <X size={18} />
+                                            </button>
+                                        </div>
+                                        <div style={{ flex: 1, padding: '1.5rem', display: 'flex', flexDirection: 'column', gap: '1.25rem', overflowY: 'auto' }}>
+                                            {/* Unit Type */}
+                                            <div style={{ display: 'flex', flexDirection: 'column', gap: '0.4rem' }}>
+                                                <label style={{ color: '#94a3b8', fontSize: '0.75rem', fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.05em' }}>Unit Type</label>
+                                                <select
+                                                    value={editForm.type}
+                                                    onChange={e => setEditForm(f => ({ ...f, type: e.target.value as UnitType }))}
+                                                    style={{ padding: '0.6rem 0.75rem', background: '#0f172a', border: '1px solid #334155', borderRadius: 8, color: '#f1f5f9', fontSize: '0.85rem', outline: 'none' }}
+                                                >
+                                                    <option value="studio">Studio</option>
+                                                    <option value="1br">1 Bedroom</option>
+                                                    <option value="2br">2 Bedroom</option>
+                                                    <option value="3br">3 Bedroom</option>
+                                                    <option value="dorm">Dorm</option>
+                                                </select>
+                                            </div>
 
-                                        {detailUnit && (
-                                            <div style={{ padding: '0.75rem', background: '#0f172a', borderRadius: 8, border: '1px solid #334155', display: 'flex', flexDirection: 'column', gap: '0.6rem' }}>
-                                                <div style={{ color: '#64748b', fontSize: '0.7rem', fontWeight: 600, textTransform: 'uppercase', display: 'flex', alignItems: 'center', gap: 6 }}>
-                                                    <AlertTriangle size={14} color="#f87171" />
-                                                    Validation
+                                            {/* Unit Number */}
+                                            <div style={{ display: 'flex', flexDirection: 'column', gap: '0.4rem' }}>
+                                                <label style={{ color: '#94a3b8', fontSize: '0.75rem', fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.05em' }}>Unit Number</label>
+                                                <input
+                                                    type="text"
+                                                    value={editForm.unitNumber}
+                                                    onChange={e => setEditForm(f => ({ ...f, unitNumber: e.target.value }))}
+                                                    placeholder="e.g. 101"
+                                                    style={{ padding: '0.6rem 0.75rem', background: '#0f172a', border: '1px solid #334155', borderRadius: 8, color: '#f1f5f9', fontSize: '0.85rem', outline: 'none' }}
+                                                />
+                                            </div>
+
+                                            {/* Rent Amount */}
+                                            <div style={{ display: 'flex', flexDirection: 'column', gap: '0.4rem' }}>
+                                                <label style={{ color: '#94a3b8', fontSize: '0.75rem', fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.05em' }}>Rent Amount (₱)</label>
+                                                <input
+                                                    type="number"
+                                                    value={editForm.rentAmount}
+                                                    onChange={e => setEditForm(f => ({ ...f, rentAmount: e.target.value }))}
+                                                    placeholder="e.g. 1500"
+                                                    style={{ padding: '0.6rem 0.75rem', background: '#0f172a', border: '1px solid #334155', borderRadius: 8, color: '#f1f5f9', fontSize: '0.85rem', outline: 'none' }}
+                                                />
+                                            </div>
+
+                                            {/* Status */}
+                                            <div style={{ display: 'flex', flexDirection: 'column', gap: '0.4rem' }}>
+                                                <label style={{ color: '#94a3b8', fontSize: '0.75rem', fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.05em' }}>Status</label>
+                                                <select
+                                                    value={editForm.status}
+                                                    onChange={e => setEditForm(f => ({ ...f, status: e.target.value }))}
+                                                    style={{ padding: '0.6rem 0.75rem', background: '#0f172a', border: '1px solid #334155', borderRadius: 8, color: '#f1f5f9', fontSize: '0.85rem', outline: 'none' }}
+                                                >
+                                                    <option value="vacant">Vacant</option>
+                                                    <option value="occupied">Occupied</option>
+                                                    <option value="maintenance">Maintenance</option>
+                                                </select>
+                                            </div>
+
+                                            {/* Grid Position (read-only info) */}
+                                            <div style={{ padding: '0.75rem', background: '#0f172a', borderRadius: 8, border: '1px solid #334155' }}>
+                                                <div style={{ color: '#64748b', fontSize: '0.7rem', fontWeight: 600, textTransform: 'uppercase', marginBottom: '0.35rem' }}>Position</div>
+                                                <div style={{ color: '#94a3b8', fontSize: '0.8rem' }}>Floor {editingUnit.floor} &bull; Row {editingUnit.gridY} &bull; Column {editingUnit.gridX}</div>
+                                            </div>
+
+                                            {detailUnit && (
+                                                <div style={{ padding: '0.75rem', background: '#0f172a', borderRadius: 8, border: '1px solid #334155', display: 'flex', flexDirection: 'column', gap: '0.6rem' }}>
+                                                    <div style={{ color: '#64748b', fontSize: '0.7rem', fontWeight: 600, textTransform: 'uppercase' }}>Details</div>
+                                                    <div style={{ color: '#e2e8f0', fontSize: '0.8rem', display: 'grid', gap: 4 }}>
+                                                        <div><span style={{ color: '#94a3b8' }}>Tenant:</span> {detailUnit.tenantName || (detailUnit.status === 'vacant' ? 'Vacant' : 'Unknown')}</div>
+                                                        <div><span style={{ color: '#94a3b8' }}>Lease:</span> {detailLease}</div>
+                                                        <div><span style={{ color: '#94a3b8' }}>Rent:</span> {detailRent}</div>
+                                                        <div><span style={{ color: '#94a3b8' }}>Last updated:</span> {detailUpdatedAt ? new Date(detailUpdatedAt).toLocaleString() : 'Unknown'}</div>
+                                                    </div>
                                                 </div>
-                                                {detailIssues.length === 0 ? (
-                                                    <div style={{ color: '#94a3b8', fontSize: '0.75rem' }}>No issues detected.</div>
-                                                ) : (
-                                                    <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
-                                                        {detailIssues.map((issue, index) => (
-                                                            <div key={`${issue}-${index}`} style={{ color: '#fecaca', fontSize: '0.75rem' }}>• {issue}</div>
+                                            )}
+
+                                            {detailUnit && (
+                                                <div style={{ padding: '0.75rem', background: '#0f172a', borderRadius: 8, border: '1px solid #334155', display: 'flex', flexDirection: 'column', gap: '0.6rem' }}>
+                                                    <div style={{ color: '#64748b', fontSize: '0.7rem', fontWeight: 600, textTransform: 'uppercase', display: 'flex', alignItems: 'center', gap: 6 }}>
+                                                        <AlertTriangle size={14} color="#f87171" />
+                                                        Validation
+                                                    </div>
+                                                    {detailIssues.length === 0 ? (
+                                                        <div style={{ color: '#94a3b8', fontSize: '0.75rem' }}>No issues detected.</div>
+                                                    ) : (
+                                                        <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
+                                                            {detailIssues.map((issue, index) => (
+                                                                <div key={`${issue}-${index}`} style={{ color: '#fecaca', fontSize: '0.75rem' }}>• {issue}</div>
+                                                            ))}
+                                                        </div>
+                                                    )}
+                                                </div>
+                                            )}
+
+                                            {detailUnit && (
+                                                <div style={{ padding: '0.75rem', background: '#0f172a', borderRadius: 8, border: '1px solid #334155', display: 'flex', flexDirection: 'column', gap: '0.6rem' }}>
+                                                    <div style={{ color: '#64748b', fontSize: '0.7rem', fontWeight: 600, textTransform: 'uppercase' }}>Notes</div>
+                                                    <div style={{ display: 'flex', flexDirection: 'column', gap: 6, maxHeight: 140, overflowY: 'auto' }}>
+                                                        {detailNotes.length === 0 && (
+                                                            <div style={{ color: '#94a3b8', fontSize: '0.75rem' }}>No notes yet.</div>
+                                                        )}
+                                                        {detailNotes.map((note) => (
+                                                            <div key={note.id} style={{ padding: '0.5rem', borderRadius: 6, background: 'rgba(15, 23, 42, 0.7)', border: '1px solid #1f2a44' }}>
+                                                                <div style={{ color: '#e2e8f0', fontSize: '0.75rem', marginBottom: 4 }}>{note.text}</div>
+                                                                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                                                                    <span style={{ color: '#64748b', fontSize: '0.65rem' }}>{new Date(note.createdAt).toLocaleString()}</span>
+                                                                    <button
+                                                                        type="button"
+                                                                        onClick={() => handleRemoveNote(detailUnit.id, note.id)}
+                                                                        style={{ background: 'transparent', border: 'none', color: '#fca5a5', fontSize: '0.65rem', cursor: 'pointer' }}
+                                                                    >
+                                                                        Remove
+                                                                    </button>
+                                                                </div>
+                                                            </div>
                                                         ))}
                                                     </div>
-                                                )}
-                                            </div>
-                                        )}
-
-                                        {detailUnit && (
-                                            <div style={{ padding: '0.75rem', background: '#0f172a', borderRadius: 8, border: '1px solid #334155', display: 'flex', flexDirection: 'column', gap: '0.6rem' }}>
-                                                <div style={{ color: '#64748b', fontSize: '0.7rem', fontWeight: 600, textTransform: 'uppercase' }}>Notes</div>
-                                                <div style={{ display: 'flex', flexDirection: 'column', gap: 6, maxHeight: 140, overflowY: 'auto' }}>
-                                                    {detailNotes.length === 0 && (
-                                                        <div style={{ color: '#94a3b8', fontSize: '0.75rem' }}>No notes yet.</div>
-                                                    )}
-                                                    {detailNotes.map((note) => (
-                                                        <div key={note.id} style={{ padding: '0.5rem', borderRadius: 6, background: 'rgba(15, 23, 42, 0.7)', border: '1px solid #1f2a44' }}>
-                                                            <div style={{ color: '#e2e8f0', fontSize: '0.75rem', marginBottom: 4 }}>{note.text}</div>
-                                                            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                                                                <span style={{ color: '#64748b', fontSize: '0.65rem' }}>{new Date(note.createdAt).toLocaleString()}</span>
-                                                                <button
-                                                                    type="button"
-                                                                    onClick={() => handleRemoveNote(detailUnit.id, note.id)}
-                                                                    style={{ background: 'transparent', border: 'none', color: '#fca5a5', fontSize: '0.65rem', cursor: 'pointer' }}
-                                                                >
-                                                                    Remove
-                                                                </button>
-                                                            </div>
-                                                        </div>
-                                                    ))}
+                                                    <div style={{ display: 'flex', gap: 6 }}>
+                                                        <input
+                                                            type="text"
+                                                            value={noteDraft}
+                                                            onChange={(e) => setNoteDraft(e.target.value)}
+                                                            placeholder="Add a note"
+                                                            style={{
+                                                                flex: 1,
+                                                                padding: '0.45rem 0.6rem',
+                                                                background: '#0f172a',
+                                                                border: '1px solid #334155',
+                                                                borderRadius: 6,
+                                                                color: '#e2e8f0',
+                                                                fontSize: '0.75rem'
+                                                            }}
+                                                        />
+                                                        <button
+                                                            type="button"
+                                                            onClick={() => handleAddNote(detailUnit.id)}
+                                                            style={{
+                                                                padding: '0.45rem 0.75rem',
+                                                                background: '#2563eb',
+                                                                border: 'none',
+                                                                borderRadius: 6,
+                                                                color: 'white',
+                                                                fontSize: '0.75rem',
+                                                                fontWeight: 700,
+                                                                cursor: 'pointer'
+                                                            }}
+                                                        >
+                                                            Add
+                                                        </button>
+                                                    </div>
                                                 </div>
-                                                <div style={{ display: 'flex', gap: 6 }}>
-                                                    <input
-                                                        type="text"
-                                                        value={noteDraft}
-                                                        onChange={(e) => setNoteDraft(e.target.value)}
-                                                        placeholder="Add a note"
-                                                        style={{
-                                                            flex: 1,
-                                                            padding: '0.45rem 0.6rem',
-                                                            background: '#0f172a',
-                                                            border: '1px solid #334155',
-                                                            borderRadius: 6,
-                                                            color: '#e2e8f0',
-                                                            fontSize: '0.75rem'
-                                                        }}
-                                                    />
-                                                    <button
-                                                        type="button"
-                                                        onClick={() => handleAddNote(detailUnit.id)}
-                                                        style={{
-                                                            padding: '0.45rem 0.75rem',
-                                                            background: '#2563eb',
-                                                            border: 'none',
-                                                            borderRadius: 6,
-                                                            color: 'white',
-                                                            fontSize: '0.75rem',
-                                                            fontWeight: 700,
-                                                            cursor: 'pointer'
-                                                        }}
-                                                    >
-                                                        Add
-                                                    </button>
-                                                </div>
-                                            </div>
-                                        )}
-                                    </div>
+                                            )}
+                                        </div>
 
-                                    {/* Action Buttons */}
-                                    <div style={{ padding: '1.25rem 1.5rem', borderTop: '1px solid #334155', display: 'flex', flexDirection: 'column', gap: '0.5rem' }}>
-                                        <button
-                                            onClick={handleEditSave}
-                                            disabled={isSaving}
-                                            style={{
-                                                padding: '0.7rem', background: '#6366f1', color: 'white', border: 'none',
-                                                borderRadius: 8, fontWeight: 700, fontSize: '0.85rem', cursor: 'pointer',
-                                                display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '0.5rem',
-                                                opacity: isSaving ? 0.6 : 1
-                                            }}
-                                        >
-                                            <Save size={16} />
-                                            {isSaving ? 'Saving...' : 'Save Changes'}
-                                        </button>
-                                        <button
-                                            onClick={handleEditDelete}
-                                            disabled={isSaving}
-                                            style={{
-                                                padding: '0.7rem', background: 'transparent', color: '#f87171', border: '1px solid #7f1d1d',
-                                                borderRadius: 8, fontWeight: 600, fontSize: '0.8rem', cursor: 'pointer',
-                                                display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '0.5rem',
-                                                opacity: isSaving ? 0.6 : 1
-                                            }}
-                                        >
-                                            <Trash2 size={14} />
-                                            Delete Unit
-                                        </button>
-                                    </div>
-                                </>
-                            ) : (
-                                /* CONSTRUCTION KIT (original sidebar) */
-                                <>
-                                    <div style={{ padding: '1.5rem', borderBottom: '1px solid #334155' }}>
-                                        <h2 style={{ color: 'white', fontWeight: 700, fontSize: '1.1rem', marginBottom: '0.5rem' }}>Construction Kit</h2>
-                                        <p style={{ color: '#94a3b8', fontSize: '0.8rem' }}>Drag rooms onto the property. Click a unit to edit it.</p>
-                                    </div>
-                                    <div style={{ flex: 1, padding: '1.5rem', display: 'flex', flexDirection: 'column', gap: '1rem', overflowY: 'auto' }}>
-                                        <SidebarUnit type="studio" label="Studio Apt" icon={<User size={16} />} />
-                                        <SidebarUnit type="1br" label="1 Bedroom" icon={<User size={16} />} />
-                                        <SidebarUnit type="2br" label="2 Bedroom" icon={<User size={16} />} />
-                                        <SidebarUnit type="3br" label="3 Bedroom" icon={<User size={16} />} />
-                                        <SidebarUnit type="dorm" label="Dorm" icon={<User size={16} />} />
-                                        <SidebarUnit type="stairs" label="Stairwell" icon={<ArrowUpFromLine size={16} />} />
-                                    </div>
-                                </>
-                            )}
+                                        {/* Action Buttons */}
+                                        <div style={{ padding: '1.25rem 1.5rem', borderTop: '1px solid #334155', display: 'flex', flexDirection: 'column', gap: '0.5rem' }}>
+                                            <button
+                                                onClick={handleEditSave}
+                                                disabled={isSaving}
+                                                style={{
+                                                    padding: '0.7rem', background: '#6366f1', color: 'white', border: 'none',
+                                                    borderRadius: 8, fontWeight: 700, fontSize: '0.85rem', cursor: 'pointer',
+                                                    display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '0.5rem',
+                                                    opacity: isSaving ? 0.6 : 1
+                                                }}
+                                            >
+                                                <Save size={16} />
+                                                {isSaving ? 'Saving...' : 'Save Changes'}
+                                            </button>
+                                            <button
+                                                onClick={handleEditDelete}
+                                                disabled={isSaving}
+                                                style={{
+                                                    padding: '0.7rem', background: 'transparent', color: '#f87171', border: '1px solid #7f1d1d',
+                                                    borderRadius: 8, fontWeight: 600, fontSize: '0.8rem', cursor: 'pointer',
+                                                    display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '0.5rem',
+                                                    opacity: isSaving ? 0.6 : 1
+                                                }}
+                                            >
+                                                <Trash2 size={14} />
+                                                Delete Unit
+                                            </button>
+                                        </div>
+                                    </>
+                                ) : (
+                                    /* CONSTRUCTION KIT (original sidebar) */
+                                    <>
+                                        <div style={{ padding: '1.5rem', borderBottom: '1px solid #334155' }}>
+                                            <h2 style={{ color: 'white', fontWeight: 700, fontSize: '1.1rem', marginBottom: '0.5rem' }}>Construction Kit</h2>
+                                            <p style={{ color: '#94a3b8', fontSize: '0.8rem' }}>Drag rooms onto the property. Click a unit to edit it.</p>
+                                        </div>
+                                        <div style={{ flex: 1, padding: '1.5rem', display: 'flex', flexDirection: 'column', gap: '1rem', overflowY: 'auto' }}>
+                                            <SidebarUnit type="studio" label="Studio Apt" icon={<User size={16} />} />
+                                            <SidebarUnit type="1br" label="1 Bedroom" icon={<User size={16} />} />
+                                            <SidebarUnit type="2br" label="2 Bedroom" icon={<User size={16} />} />
+                                            <SidebarUnit type="3br" label="3 Bedroom" icon={<User size={16} />} />
+                                            <SidebarUnit type="dorm" label="Dorm" icon={<User size={16} />} />
+                                            <SidebarUnit type="stairs" label="Stairwell" icon={<ArrowUpFromLine size={16} />} />
+                                        </div>
+                                    </>
+                                )}
+                            </div>
                         </aside>
+
+                        {/* Unified Sidebar Toggle Button */}
+                        <button
+                            onClick={() => setIsSidebarOpen(!isSidebarOpen)}
+                            title={isSidebarOpen ? "Collapse Sidebar" : "Expand Sidebar"}
+                            style={{
+                                position: 'absolute',
+                                top: '50%',
+                                right: isSidebarOpen ? 280 : 0,
+                                transform: 'translateY(-50%)',
+                                width: 24,
+                                height: 64,
+                                background: '#334155',
+                                borderTop: '1px solid #64748b',
+                                borderBottom: '1px solid #64748b',
+                                borderLeft: '1px solid #64748b',
+                                borderRight: 'none',
+                                borderTopLeftRadius: 12,
+                                borderBottomLeftRadius: 12,
+                                display: 'flex',
+                                alignItems: 'center',
+                                justifyContent: 'center',
+                                cursor: 'pointer',
+                                zIndex: 60,
+                                color: '#f1f5f9',
+                                boxShadow: '-4px 0 12px rgba(0,0,0,0.3)',
+                                transition: 'right 0.3s ease-in-out'
+                            }}
+                        >
+                            {isSidebarOpen ? (
+                                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><polyline points="9 18 15 12 9 6"></polyline></svg>
+                            ) : (
+                                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><polyline points="15 18 9 12 15 6"></polyline></svg>
+                            )}
+                        </button>
 
                         <AnimatePresence>
                             {isDraggingExistingUnit && (
@@ -1733,37 +1875,41 @@ export default function VisualBuilder({
                             )}
                         </AnimatePresence>
                     </>
-                )}
-            </div>
+                )
+                }
+            </div >
 
             {/* DRAG OVERLAY - Follows Mouse (Screen Space) */}
-            {!readOnly && mounted && createPortal(
-                <DragOverlay dropAnimation={null} zIndex={9999}>
-                    {activeType ? (
-                        <div style={{
-                            width: getUnitConfig(activeType).width * GRID_CELL_SIZE * zoom,
-                            height: getUnitConfig(activeType).height * GRID_CELL_SIZE * zoom,
-                            background: '#6366f1',
-                            opacity: 0.8,
-                            borderRadius: '4px',
-                            boxShadow: '0 10px 30px rgba(0,0,0,0.5)',
-                            display: 'flex', alignItems: 'center', justifyContent: 'center', color: 'white', fontWeight: 'bold',
-                            transformOrigin: 'top left',
-                        }}>
-                            {getUnitConfig(activeType).label}
-                        </div>
-                    ) : null}
-                </DragOverlay>,
-                document.body
-            )}
+            {
+                !readOnly && mounted && createPortal(
+                    <DragOverlay dropAnimation={null} zIndex={9999}>
+                        {activeType ? (
+                            <div style={{
+                                width: getUnitConfig(activeType).width * GRID_CELL_SIZE * zoom,
+                                height: getUnitConfig(activeType).height * GRID_CELL_SIZE * zoom,
+                                background: '#6366f1',
+                                opacity: 0.8,
+                                borderRadius: '4px',
+                                boxShadow: '0 10px 30px rgba(0,0,0,0.5)',
+                                display: 'flex', alignItems: 'center', justifyContent: 'center', color: 'white', fontWeight: 'bold',
+                                transformOrigin: 'top left',
+                            }}>
+                                {getUnitConfig(activeType).label}
+                            </div>
+                        ) : null}
+                    </DragOverlay>,
+                    document.body
+                )
+            }
 
-        </DndContext>
+        </DndContext >
     );
 }
 
 function CanvasContent({
     units,
     tiles,
+    buildingBounds,
     ghost,
     activeId,
     readOnly,
@@ -1785,6 +1931,7 @@ function CanvasContent({
 }: {
     units: Unit[];
     tiles: MapTile[];
+    buildingBounds: { x: number; y: number; width: number; height: number } | null;
     ghost: GhostState | null;
     activeId: string | null;
     readOnly: boolean;
@@ -1872,6 +2019,24 @@ function CanvasContent({
                         <span style={{ color: '#ef4444', fontWeight: 'bold', textShadow: '0 1px 2px black' }}>OCCUPIED</span>
                     )}
                 </div>
+            )}
+
+            {/* BUILDING OUTLINE */}
+            {buildingBounds && (
+                <div
+                    style={{
+                        position: 'absolute',
+                        left: buildingBounds.x * GRID_CELL_SIZE,
+                        top: buildingBounds.y * GRID_CELL_SIZE,
+                        width: buildingBounds.width * GRID_CELL_SIZE,
+                        height: buildingBounds.height * GRID_CELL_SIZE,
+                        background: 'linear-gradient(135deg, rgba(15, 23, 42, 0.7), rgba(30, 41, 59, 0.6))',
+                        border: '2px solid rgba(148, 163, 184, 0.45)',
+                        boxShadow: 'inset 0 0 0 2px rgba(15, 23, 42, 0.6), 0 18px 40px rgba(2, 6, 23, 0.5)',
+                        zIndex: 1,
+                        pointerEvents: 'none'
+                    }}
+                />
             )}
 
             {/* CORRIDOR TILES */}
@@ -2014,21 +2179,10 @@ function DraggableUnit({
 
     // Styles
     const isStairs = unit.type === 'stairs';
-    const isOccupied = unit.status === 'occupied';
-    const isVacant = unit.status === 'vacant';
 
-    const statusTone = unit.status === 'vacant'
-        ? { primary: '#3f915f', dark: '#0a1d14', glow: 'rgba(63, 145, 95, 0.14)' }
-        : unit.status === 'occupied'
-            ? { primary: '#5a7fb3', dark: '#0c1522', glow: 'rgba(90, 127, 179, 0.14)' }
-            : unit.status === 'neardue'
-                ? { primary: '#b86b3a', dark: '#24140c', glow: 'rgba(184, 107, 58, 0.14)' }
-                : { primary: '#a34b4b', dark: '#230d0d', glow: 'rgba(163, 75, 75, 0.14)' };
-
-    // Theme Colors
-    const bgGradient = isStairs
-        ? 'linear-gradient(to right, #334155, #475569, #334155)'
-        : `linear-gradient(to bottom, ${statusTone.primary}, ${statusTone.dark})`;
+    // Determine CSS classes for variants
+    const statusKey = unit.status.charAt(0).toUpperCase() + unit.status.slice(1);
+    const variantClass = isStairs ? styles.unitStairs : styles[`unit${statusKey}`] || styles.unitVacant;
 
     const [isHovered, setIsHovered] = useState(false);
     const [isTooltipVisible, setIsTooltipVisible] = useState(false);
@@ -2056,32 +2210,29 @@ function DraggableUnit({
         whileElementsMounted: autoUpdate
     });
 
-    const basePlacement = placement.split('-')[0] as 'top' | 'bottom' | 'left' | 'right';
-    const showTooltip = readOnly && isTooltipVisible;
-    const showHoverGlow = isHovered && readOnly;
-    const showSelectGlow = isSelected;
-    const showHighlight = !!isHighlighted;
-    const glowVariant: 'selected' | 'hover' | 'highlighted' | null = showHighlight ? 'highlighted' : showSelectGlow ? 'selected' : showHoverGlow ? 'hover' : null;
     const validationCount = validationIssues?.length || 0;
     const hasValidation = validationCount > 0;
+
+    // Tooltip content logic (Preserved)
     const tooltipTitle = unit.id === currentUserUnitId
         ? 'This is where you are'
         : unit.tenantName && unit.tenantName !== 'Resident'
             ? unit.tenantName
-            : isVacant
+            : unit.status === 'vacant'
                 ? 'Vacant'
                 : unit.tenantName || 'Resident';
     const tooltipSubtitle = unit.id === currentUserUnitId
         ? 'Your unit'
         : unit.tenantName && unit.tenantName !== 'Resident'
             ? 'Resident'
-            : isVacant
+            : unit.status === 'vacant'
                 ? 'Available'
                 : 'Resident';
+
     const canMessage = readOnly
         && unit.id !== currentUserUnitId
         && unit.type !== 'stairs'
-        && !isVacant
+        && unit.status !== 'vacant'
         && unit.tenantName
         && unit.tenantName !== 'Resident'
         && !unit.tenantIsPrivate;
@@ -2142,17 +2293,16 @@ function DraggableUnit({
                 setNodeRef(node);
                 refs.setReference(node);
             }}
+            className={`${styles.unit} ${styles[unit.type] || ''} ${variantClass} ${isSelected ? styles.unitSelected : ''} ${isHighlighted ? styles.unitHighlighted : ''} ${hasValidation ? styles.unitError : ''}`}
+
             style={{
-                position: 'absolute',
                 top: pixelY,
                 left: pixelX,
                 width,
                 height,
                 zIndex: isHovered ? 70 : isSelected ? 65 : 10,
                 cursor: readOnly ? 'pointer' : 'grab',
-                boxSizing: 'border-box',
-                outline: hasValidation ? '2px solid rgba(248, 113, 113, 0.75)' : 'none',
-                outlineOffset: hasValidation ? 2 : 0
+                // Outline for validation handled in CSS
             }}
             onClick={(e) => {
                 // Prevent click when drag was in progress (pointer moved > 5px)
@@ -2193,126 +2343,96 @@ function DraggableUnit({
                 </div>
             )}
 
+            {/* Validation Badge */}
             {hasValidation && (
                 <div
                     title={validationIssues?.join('\n')}
                     style={{
                         position: 'absolute',
-                        top: 6,
-                        left: 6,
-                        background: 'rgba(127, 29, 29, 0.9)',
-                        color: '#fee2e2',
-                        border: '1px solid rgba(248, 113, 113, 0.6)',
-                        borderRadius: 999,
-                        padding: '2px 6px',
-                        fontSize: '0.6rem',
-                        fontWeight: 700,
+                        top: -8,
+                        left: -8,
+                        background: '#ef4444',
+                        color: 'white',
+                        border: '2px solid #1e293b',
+                        borderRadius: '50%',
+                        width: 20,
+                        height: 20,
                         display: 'flex',
                         alignItems: 'center',
-                        gap: 4,
-                        zIndex: 90
+                        justifyContent: 'center',
+                        zIndex: 90,
+                        boxShadow: '0 2px 6px rgba(0,0,0,0.3)'
                     }}
                 >
-                    <AlertTriangle size={10} />
-                    {validationCount}
+                    <AlertTriangle size={12} />
                 </div>
             )}
 
-            {/* Main Container */}
-            <div style={{
-                width: '100%',
-                height: '100%',
-                background: bgGradient,
-                position: 'relative',
-                overflow: 'hidden',
-                borderRadius: 8,
-                border: '1px solid #334155',
-                boxShadow: 'inset 0 0 18px rgba(15, 23, 42, 0.5)'
-            }}>
-                {glowVariant && (
-                    <div
-                        style={{
-                            position: 'absolute',
-                            inset: 0,
-                            pointerEvents: 'none',
-                            boxShadow: glowVariant === 'highlighted'
-                                ? 'inset 0 0 0 2px rgba(34, 197, 94, 0.7)'
-                                : glowVariant === 'selected'
-                                ? 'inset 0 0 0 2px rgba(96, 165, 250, 0.55)'
-                                : 'inset 0 0 0 2px rgba(37, 99, 235, 0.38)',
-                        }}
-                    />
-                )}
+            {/* Unit Content */}
+            <div className={styles.unitHeader}>
+                <span className={styles.unitNumber}>{unit.unitNumber || unit.id.slice(0, 4)}</span>
+                {/* Optional Top Right Icon? */}
+            </div>
 
-                {readOnly && unit.id === currentUserUnitId && (
-                    <div style={{
-                        position: 'absolute',
-                        top: 6,
-                        right: 6,
-                        width: 34,
-                        height: 34,
-                        borderRadius: '50%',
-                        background: '#6366f1',
-                        color: 'white',
-                        display: 'flex',
-                        alignItems: 'center',
-                        justifyContent: 'center',
-                        fontSize: '0.75rem',
-                        fontWeight: 700,
-                        border: '2px solid rgba(15, 23, 42, 0.9)',
-                        boxShadow: '0 6px 16px rgba(15, 23, 42, 0.45)',
-                        overflow: 'hidden',
-                        zIndex: 40
-                    }}>
-                        {currentUserAvatarUrl ? (
-                            <img
-                                src={currentUserAvatarUrl}
-                                alt="Your profile"
-                                style={{ width: '100%', height: '100%', objectFit: 'cover' }}
-                            />
+            <div className={styles.unitBody}>
+                {isStairs ? (
+                    <div className={styles.stairsContent}>
+                        <ArrowUpFromLine size={24} strokeWidth={1.5} />
+                    </div>
+                ) : (
+                    <>
+                        {unit.status === 'occupied' && unit.tenantName && unit.tenantName !== 'Resident' ? (
+                            <div className={styles.tenantInfo}>
+                                <div className={styles.tenantAvatar}>
+                                    {tooltipInitials}
+                                </div>
+                                <div className={styles.tenantName}>{unit.tenantName}</div>
+                            </div>
+                        ) : unit.status === 'occupied' ? (
+                            <div className={styles.tenantInfo}>
+                                <div className={styles.tenantAvatar}>
+                                    <User size={16} />
+                                </div>
+                                <div className={styles.tenantName}>Occupied</div>
+                            </div>
                         ) : (
-                            <span>{currentUserInitials || 'ME'}</span>
+                            <div className={styles.vacantLabel}>
+                                {unit.status}
+                            </div>
                         )}
-                    </div>
+                    </>
                 )}
+            </div>
 
-                {unit.status === 'maintenance' && (
-                    <div style={{
-                        position: 'absolute',
-                        inset: 0,
-                        background: 'repeating-linear-gradient(45deg, rgba(163, 75, 75, 0.22), rgba(163, 75, 75, 0.22) 10px, transparent 10px, transparent 20px)',
-                        display: 'flex',
-                        alignItems: 'center',
-                        justifyContent: 'center',
-                        backdropFilter: 'grayscale(100%) blur(1px)'
-                    }}>
-                        <div style={{ background: '#a34b4b', color: 'white', padding: '2px 8px', borderRadius: 4, fontWeight: 700, fontSize: '0.7rem' }}>
-                            MAINTENANCE
-                        </div>
-                    </div>
-                )}
+            {!isStairs && (
+                <div className={styles.unitFooter}>
+                    <span className={styles.unitRent}>
+                        {unit.rentAmount ? `₱${unit.rentAmount.toLocaleString()}` : ''}
+                    </span>
+                    <div className={`${styles.statusIndicator} ${styles[unit.status] ?? ''}`} />
+                </div>
+            )}
 
-                {unit.status === 'neardue' && (
-                    <div style={{
-                        position: 'absolute',
-                        inset: 0,
-                        border: '1px solid #b86b3a',
-                        boxShadow: 'inset 0 0 20px rgba(184, 107, 58, 0.2)',
+            {/* Tooltip Portal */}
+            {readOnly && isTooltipVisible && createPortal(
+                <div
+                    ref={refs.setFloating}
+                    style={{
+                        position: strategy,
+                        top: y ?? 0,
+                        left: x ?? 0,
+                        zIndex: 9999,
+                        background: 'rgba(15, 23, 42, 0.95)',
+                        border: '1px solid #334155',
+                        borderRadius: '12px',
+                        padding: '12px',
+                        boxShadow: '0 20px 25px -5px rgba(0, 0, 0, 0.4), 0 8px 10px -6px rgba(0, 0, 0, 0.4)',
+                        color: 'white',
                         pointerEvents: 'none',
-                        animation: 'pulse-red 2s infinite'
-                    }} />
-                )}
+                        justifyContent: 'space-between',
+                        gap: 6,
 
-                <div style={{
-                    position: 'absolute',
-                    inset: 0,
-                    padding: 8,
-                    display: 'flex',
-                    flexDirection: 'column',
-                    justifyContent: 'space-between',
-                    gap: 6,
-                    zIndex: 5
-                }}>
+                    }}>
                     <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 6 }}>
                         <div style={{
                             background: 'rgba(0,0,0,0.45)',
@@ -2363,172 +2483,11 @@ function DraggableUnit({
                             )}
                         </div>
                     )}
-                </div>
-            </div>
-
-                    {typeof document !== 'undefined' && createPortal(
-                        <AnimatePresence>
-                            {showTooltip && (
-                                <motion.div
-                                    ref={refs.setFloating}
-                                    initial={{ opacity: 0, scale: 0.96, y: preferredPlacement === 'top' ? 6 : -6 }}
-                                    animate={{ opacity: 1, scale: 1, y: 0 }}
-                                    exit={{ opacity: 0, scale: 0.94, y: preferredPlacement === 'top' ? 4 : -4 }}
-                                    transition={{ duration: 0.14, ease: 'easeOut' }}
-                                    style={{
-                                        position: strategy,
-                                        top: y ?? 0,
-                                        left: x ?? 0,
-                                        visibility: x == null || y == null ? 'hidden' : 'visible',
-                                        background: '#0f172a',
-                                        color: '#f8fafc',
-                                        borderRadius: 16,
-                                        border: '1px solid rgba(148, 163, 184, 0.25)',
-                                        fontSize: '0.75rem',
-                                        zIndex: 9999,
-                                        boxShadow: '0 18px 35px rgba(0, 0, 0, 0.55)',
-                                        pointerEvents: 'auto',
-                                        overflow: 'hidden',
-                                        display: 'flex',
-                                        flexDirection: 'column',
-                                        transformOrigin: basePlacement === 'top' ? 'bottom center' : basePlacement === 'bottom' ? 'top center' : basePlacement === 'left' ? 'center right' : 'center left'
-                                    }}
-                                    onPointerEnter={openTooltip}
-                                    onPointerLeave={scheduleClose}
-                                >
-                                    {/* Caret pointing back to hovered unit */}
-                                    <div
-                                        style={{
-                                            position: 'absolute',
-                                            width: 12,
-                                            height: 12,
-                                            background: '#0f172a',
-                                            border: '1px solid rgba(148, 163, 184, 0.25)',
-                                            transform: 'rotate(45deg)',
-                                            zIndex: -1,
-                                            ...(basePlacement === 'top'
-                                                ? { bottom: -6, left: '50%', marginLeft: -6 }
-                                                : basePlacement === 'bottom'
-                                                    ? { top: -6, left: '50%', marginLeft: -6 }
-                                                    : basePlacement === 'left'
-                                                        ? { right: -6, top: '50%', marginTop: -6 }
-                                                        : { left: -6, top: '50%', marginTop: -6 })
-                                        }}
-                                    />
-                                    <div style={{
-                                        height: 46,
-                                        background: 'linear-gradient(135deg, #1d4ed8 0%, #0f172a 100%)'
-                                    }} />
-                                    <div style={{
-                                        flex: 1,
-                                        minHeight: 0,
-                                        overflow: 'auto'
-                                    }}>
-                                        <div style={{
-                                            padding: '0 0.9rem 0.9rem',
-                                            marginTop: -18,
-                                            textAlign: 'center'
-                                        }}>
-                                            {showAvatar && (
-                                                unit.tenantAvatarUrl ? (
-                                                    <div style={{
-                                                        width: 48,
-                                                        height: 48,
-                                                        borderRadius: '50%',
-                                                        overflow: 'hidden',
-                                                        border: '3px solid #0f172a',
-                                                        boxShadow: '0 8px 16px rgba(15, 23, 42, 0.2)',
-                                                        margin: '0 auto 0.4rem'
-                                                    }}>
-                                                        <img
-                                                            src={unit.tenantAvatarUrl}
-                                                            alt={unit.tenantName || 'Resident'}
-                                                            style={{
-                                                                width: '100%',
-                                                                height: '100%',
-                                                                objectFit: 'cover'
-                                                            }}
-                                                        />
-                                                    </div>
-                                                ) : (
-                                                    <div style={{
-                                                        width: 48,
-                                                        height: 48,
-                                                        borderRadius: '50%',
-                                                        background: 'rgba(99, 102, 241, 0.2)',
-                                                        color: '#c7d2fe',
-                                                        display: 'flex',
-                                                        alignItems: 'center',
-                                                        justifyContent: 'center',
-                                                        fontWeight: 700,
-                                                        fontSize: '0.75rem',
-                                                        border: '3px solid #0f172a',
-                                                        boxShadow: '0 8px 16px rgba(15, 23, 42, 0.2)',
-                                                        margin: '0 auto 0.4rem'
-                                                    }}>
-                                                        {tooltipInitials || 'R'}
-                                                    </div>
-                                                )
-                                            )}
-                                            <div style={{ fontWeight: 700, fontSize: '0.85rem' }}>{tooltipTitle}</div>
-                                            <div style={{ color: '#94a3b8', fontSize: '0.7rem' }}>{tooltipSubtitle}</div>
-                                        </div>
-                                        <div style={{
-                                            borderTop: '1px solid rgba(148, 163, 184, 0.2)',
-                                            padding: '0.6rem 0.8rem 0.75rem',
-                                            display: 'grid',
-                                            gridTemplateColumns: canMessage ? '1fr 1fr' : '1fr',
-                                            gap: 8
-                                        }}>
-                                            <button
-                                                type="button"
-                                                onClick={(event) => {
-                                                    event.stopPropagation();
-                                                    if (unit.type !== 'stairs') {
-                                                        onUnitClick?.(unit.id);
-                                                    }
-                                                }}
-                                                style={{
-                                                    background: '#0b1220',
-                                                    color: '#e2e8f0',
-                                                    border: '1px solid rgba(148, 163, 184, 0.35)',
-                                                    borderRadius: 999,
-                                                    padding: '0.35rem 0.5rem',
-                                                    fontSize: '0.65rem',
-                                                    fontWeight: 700,
-                                                    cursor: 'pointer'
-                                                }}
-                                            >
-                                                View
-                                            </button>
-                                            {canMessage && (
-                                                <button
-                                                    type="button"
-                                                    onClick={(event) => {
-                                                        event.stopPropagation();
-                                                        onUnitMessageClick?.(unit.id);
-                                                    }}
-                                                    style={{
-                                                        background: '#2563eb',
-                                                        color: 'white',
-                                                        border: 'none',
-                                                        borderRadius: 999,
-                                                        padding: '0.35rem 0.5rem',
-                                                        fontSize: '0.65rem',
-                                                        fontWeight: 700,
-                                                        cursor: 'pointer'
-                                                    }}
-                                                >
-                                                    Message
-                                                </button>
-                                            )}
-                                        </div>
-                                    </div>
-                                </motion.div>
-                            )}
-                        </AnimatePresence>,
-                        document.body
-                    )}
+                </div>,
+                document.body
+            )}
         </div>
     );
 }
+
+
