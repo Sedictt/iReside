@@ -107,6 +107,14 @@ INSERT INTO units (id, property_id, unit_number, unit_type, rent_amount, status,
 
 ON CONFLICT (id) DO NOTHING;
 
+-- Backfill top-down map fields for seeded units
+UPDATE units
+SET
+    map_x = grid_x,
+    map_y = grid_y,
+    map_floor = 1
+WHERE map_x IS NULL OR map_y IS NULL OR map_floor IS NULL;
+
 -- =====================================================
 -- MAINTENANCE REQUESTS
 -- =====================================================

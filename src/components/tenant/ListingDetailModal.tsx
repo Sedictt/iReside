@@ -75,9 +75,20 @@ type UnitData = {
     unit_type: string;
     grid_x: number;
     grid_y: number;
+    map_x?: number | null;
+    map_y?: number | null;
+    map_floor?: number | null;
     status: string;
     unit_number: string | null;
     rent_amount: number | null;
+};
+
+type TileData = {
+    id: string;
+    tile_type: string;
+    grid_x: number;
+    grid_y: number;
+    floor: number | null;
 };
 
 const propertyTypeLabels: Record<string, string> = {
@@ -96,6 +107,7 @@ export default function ListingDetailModal({ listingId, onClose }: ListingDetail
     const [activeTab, setActiveTab] = useState<'photos' | 'blueprint'>('photos');
     const [isExpanded, setIsExpanded] = useState(false);
     const [units, setUnits] = useState<UnitData[]>([]);
+    const [tiles, setTiles] = useState<TileData[]>([]);
     const [selectedUnit, setSelectedUnit] = useState<string | null>(null);
     const [isUnitDropdownOpen, setIsUnitDropdownOpen] = useState(false);
 
@@ -152,10 +164,17 @@ export default function ListingDetailModal({ listingId, onClose }: ListingDetail
                 if (data.property_id) {
                     const { data: unitData } = await supabase
                         .from('units')
-                        .select('id, unit_type, grid_x, grid_y, status, unit_number, rent_amount')
+                        .select('id, unit_type, grid_x, grid_y, map_x, map_y, map_floor, status, unit_number, rent_amount')
                         .eq('property_id', data.property_id);
 
                     if (unitData) setUnits(unitData);
+
+                    const { data: tileData } = await supabase
+                        .from('unit_map_tiles')
+                        .select('id, tile_type, grid_x, grid_y, floor')
+                        .eq('property_id', data.property_id);
+
+                    if (tileData) setTiles(tileData);
                 }
             }
             setIsLoading(false);
@@ -358,6 +377,7 @@ export default function ListingDetailModal({ listingId, onClose }: ListingDetail
                                     <VisualBuilder
                                         propertyId={listing?.property_id || ''}
                                         initialUnits={units}
+                                        initialTiles={tiles}
                                         readOnly={true}
                                         onUnitClick={handleUnitClick}
                                     />
@@ -832,6 +852,7 @@ export default function ListingDetailModal({ listingId, onClose }: ListingDetail
                             <VisualBuilder
                                 propertyId={listing?.property_id || ''}
                                 initialUnits={units}
+                                initialTiles={tiles}
                                 readOnly={true}
                                 onUnitClick={handleUnitClick}
                             />

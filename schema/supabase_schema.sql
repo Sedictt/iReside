@@ -377,6 +377,22 @@ CREATE TABLE public.units (
   unit_type text DEFAULT 'studio'::text,
   grid_x integer DEFAULT 0,
   grid_y integer DEFAULT 0,
+  map_x integer DEFAULT 0,
+  map_y integer DEFAULT 0,
+  map_floor integer DEFAULT 1,
   CONSTRAINT units_pkey PRIMARY KEY (id),
   CONSTRAINT units_property_id_fkey FOREIGN KEY (property_id) REFERENCES public.properties(id)
+);
+
+CREATE TABLE public.unit_map_tiles (
+  id uuid NOT NULL DEFAULT gen_random_uuid(),
+  property_id uuid NOT NULL,
+  floor integer NOT NULL DEFAULT 1,
+  grid_x integer NOT NULL,
+  grid_y integer NOT NULL,
+  tile_type text NOT NULL DEFAULT 'corridor'::text CHECK (tile_type = ANY (ARRAY['corridor'::text])),
+  created_at timestamp with time zone DEFAULT timezone('utc'::text, now()),
+  CONSTRAINT unit_map_tiles_pkey PRIMARY KEY (id),
+  CONSTRAINT unit_map_tiles_property_id_fkey FOREIGN KEY (property_id) REFERENCES public.properties(id),
+  CONSTRAINT unit_map_tiles_unique UNIQUE (property_id, floor, grid_x, grid_y, tile_type)
 );

@@ -3,7 +3,7 @@ import React from "react";
 import {
     ZoomIn, ZoomOut, Maximize, Undo2, Redo2, Grid3X3,
     Copy, AlignHorizontalDistributeCenter, AlignVerticalDistributeCenter,
-    AlignCenterHorizontal, Trash2, Search, Layers,
+    AlignCenterHorizontal, Trash2, Search, Layers, Paintbrush,
 } from "lucide-react";
 
 /* ─── types ─── */
@@ -35,6 +35,12 @@ export interface ToolbarProps {
 
     onOpenSearch: () => void;
     onOpenSavedViews: () => void;
+
+    floors: number[];
+    activeFloor: number;
+    onFloorChange: (floor: number) => void;
+    corridorPaintMode: boolean;
+    onToggleCorridorPaint: () => void;
 }
 
 /* ─── small components ─── */
@@ -90,6 +96,8 @@ export default function BuilderToolbar(props: ToolbarProps) {
         onBulkDelete, onBulkStatus, onDuplicate,
         onAlignRow, onDistribute, onCenterVertical,
         onOpenSearch, onOpenSavedViews,
+        floors, activeFloor, onFloorChange,
+        corridorPaintMode, onToggleCorridorPaint,
     } = props;
 
     return (
@@ -207,6 +215,40 @@ export default function BuilderToolbar(props: ToolbarProps) {
             {/* Search */}
             <TBtn title="Search (Ctrl+F)" onClick={onOpenSearch}><Search size={15} /></TBtn>
             <TBtn title="Saved Views" onClick={onOpenSavedViews}><Layers size={15} /></TBtn>
+
+            <Divider />
+
+            {/* Corridor paint */}
+            <TBtn
+                title={corridorPaintMode ? "Exit Corridor Paint" : "Paint Corridors"}
+                onClick={onToggleCorridorPaint}
+                active={corridorPaintMode}
+            >
+                <Paintbrush size={15} />
+            </TBtn>
+
+            {/* Floor selector */}
+            <select
+                title="Select Floor"
+                value={activeFloor}
+                onChange={(e) => onFloorChange(Number(e.target.value))}
+                style={{
+                    height: 32,
+                    padding: "0 8px",
+                    background: "rgba(15, 23, 42, 0.85)",
+                    border: "1px solid #334155",
+                    borderRadius: 6,
+                    color: "#e2e8f0",
+                    fontSize: "0.7rem",
+                    fontWeight: 700,
+                    cursor: "pointer",
+                    appearance: "none",
+                }}
+            >
+                {floors.map((floor) => (
+                    <option key={floor} value={floor}>Floor {floor}</option>
+                ))}
+            </select>
         </div>
     );
 }

@@ -15,19 +15,29 @@ import BuilderToolbar from './visual-builder/BuilderToolbar';
 import CanvasSearch from './visual-builder/CanvasSearch';
 import SavedViews, { type SavedView } from './visual-builder/SavedViews';
 
-type UnitType = 'studio' | '1br' | '2br' | 'stairs';
+type UnitType = 'studio' | '1br' | '2br' | '3br' | 'dorm' | 'stairs';
+type MapTileType = 'corridor';
 
 interface Unit {
     id: string;
     type: UnitType;
     gridX: number;
     gridY: number;
+    floor: number;
     status: 'occupied' | 'vacant' | 'maintenance' | 'neardue';
     tenantName?: string;
     tenantIsPrivate?: boolean;
     tenantAvatarUrl?: string;
     unitNumber?: string;
     rentAmount?: number;
+}
+
+interface MapTile {
+    id: string;
+    type: MapTileType;
+    gridX: number;
+    gridY: number;
+    floor: number;
 }
 
 type UnitNote = {
@@ -41,6 +51,9 @@ type InitialUnit = {
     unit_type: string;
     grid_x: number;
     grid_y: number;
+    map_x?: number | null;
+    map_y?: number | null;
+    map_floor?: number | null;
     status: string;
     unit_number?: string | null;
     rent_amount?: number | null;
@@ -49,19 +62,30 @@ type InitialUnit = {
     tenant_avatar_url?: string | null;
 };
 
-type GhostState = { x: number; y: number; widthCells: number; valid: boolean };
+type InitialTile = {
+    id: string;
+    tile_type: string;
+    grid_x: number;
+    grid_y: number;
+    floor?: number | null;
+};
+
+type GhostState = { x: number; y: number; widthCells: number; heightCells: number; valid: boolean };
 
 // Config
 const GRID_CELL_SIZE = 40;
-const FLOOR_HEIGHT_CELLS = 4;
-const UNIT_HEIGHT = FLOOR_HEIGHT_CELLS * GRID_CELL_SIZE;
 
-const unitConfig: Record<UnitType, { cells: number; label: string }> = {
-    studio: { cells: 4, label: 'Studio' },
-    '1br': { cells: 5, label: '1 Bedroom' },
-    '2br': { cells: 7, label: '2 Bedroom' },
-    'stairs': { cells: 2, label: 'Stairs' }
+const DEFAULT_UNIT_CONFIG = { width: 3, height: 2, label: 'Unit' };
+const unitConfig: Record<string, { width: number; height: number; label: string }> = {
+    studio: { width: 2, height: 2, label: 'Studio' },
+    '1br': { width: 3, height: 2, label: '1 Bedroom' },
+    '2br': { width: 4, height: 3, label: '2 Bedroom' },
+    '3br': { width: 5, height: 3, label: '3 Bedroom' },
+    dorm: { width: 2, height: 2, label: 'Dorm' },
+    stairs: { width: 2, height: 2, label: 'Stairs' }
 };
+
+const getUnitConfig = (type: string) => unitConfig[type] ?? DEFAULT_UNIT_CONFIG;
 
 import { createClient } from '@/utils/supabase/client';
 
@@ -75,6 +99,7 @@ function mapDbStatusToUi(status: string): Unit['status'] {
 export default function VisualBuilder({
     propertyId,
     initialUnits = [],
+    initialTiles = [],
     readOnly = false,
     isFullScreen = false,
     onToggleFullScreen,
@@ -87,6 +112,7 @@ export default function VisualBuilder({
 }: {
     propertyId: string;
     initialUnits?: InitialUnit[];
+    initialTiles?: InitialTile[];
     readOnly?: boolean;
     isFullScreen?: boolean;
     onToggleFullScreen?: () => void;
@@ -100,8 +126,9 @@ export default function VisualBuilder({
     const mapInitialUnits = (items: InitialUnit[]) => items.map((u) => ({
         id: u.id,
         type: u.unit_type as UnitType,
-        gridX: u.grid_x,
-        gridY: u.grid_y,
+        gridX: u.map_x ?? u.grid_x,
+        gridY: u.map_y ?? u.grid_y,
+        floor: u.map_floor ?? 1,
         status: mapDbStatusToUi(u.status),
         unitNumber: u.unit_number ?? undefined,
         rentAmount: u.rent_amount ?? undefined,
@@ -110,7 +137,18 @@ export default function VisualBuilder({
         tenantAvatarUrl: u.tenant_avatar_url ?? undefined
     }));
 
+    const mapInitialTiles = (items: InitialTile[]) => items
+        .filter((tile) => tile.tile_type === 'corridor')
+        .map((tile) => ({
+            id: tile.id,
+            type: 'corridor' as MapTileType,
+            gridX: tile.grid_x,
+            gridY: tile.grid_y,
+            floor: tile.floor ?? 1
+        }));
+
     const [units, setUnits] = useState<Unit[]>(mapInitialUnits(initialUnits));
+    const [tiles, setTiles] = useState<MapTile[]>(mapInitialTiles(initialTiles));
     const supabase = createClient();
 
     // Edit State
@@ -132,6 +170,11 @@ export default function VisualBuilder({
     // Viewport State
     const [zoom, setZoom] = useState(1);
     const viewportRef = useRef<HTMLDivElement>(null);
+
+    // Floor + corridor paint state
+    const [activeFloor, setActiveFloor] = useState(1);
+    const [paintMode, setPaintMode] = useState<'none' | 'corridor'>('none');
+    const paintedCellsRef = useRef<Set<string>>(new Set());
 
     // ═══ QoL: Multi-select ═══
     const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
@@ -159,9 +202,6 @@ export default function VisualBuilder({
     // ═══ QoL: Filters ═══
     const [statusFilter, setStatusFilter] = useState<Set<Unit['status']>>(
         new Set(['vacant', 'occupied', 'maintenance', 'neardue'])
-    );
-    const [floorFilter, setFloorFilter] = useState<Set<number>>(
-        new Set(Array.from({ length: 10 }, (_, i) => i + 1))
     );
     const [priceFilter, setPriceFilter] = useState<{ min: string; max: string }>({ min: '', max: '' });
     const [showStairs, setShowStairs] = useState(true);
@@ -209,7 +249,8 @@ export default function VisualBuilder({
     useEffect(() => {
         if (!readOnly) return;
         setUnits(mapInitialUnits(initialUnits));
-    }, [initialUnits, readOnly]);
+        setTiles(mapInitialTiles(initialTiles));
+    }, [initialUnits, initialTiles, readOnly]);
 
     useEffect(() => {
         setLastUpdatedByUnit(prev => {
@@ -267,18 +308,32 @@ export default function VisualBuilder({
     const handleZoomOut = useCallback(() => setZoom(z => Math.max(0.4, z - 0.15)), []);
     const handleZoomReset = useCallback(() => setZoom(1), []);
     const handleFitToView = useCallback(() => {
-        if (units.length === 0 || !viewportRef.current) return;
+        if (!viewportRef.current) return;
         const vp = viewportRef.current;
         let minX = Infinity, maxX = -Infinity, minY = Infinity, maxY = -Infinity;
-        for (const u of units) {
-            const cfg = unitConfig[u.type];
+        const floorUnits = units.filter((unit) => unit.floor === activeFloor);
+        const floorTiles = tiles.filter((tile) => tile.floor === activeFloor);
+
+        for (const u of floorUnits) {
+            const cfg = getUnitConfig(u.type);
             const px = u.gridX * GRID_CELL_SIZE;
-            const py = (10 - u.gridY) * UNIT_HEIGHT;
+            const py = u.gridY * GRID_CELL_SIZE;
             minX = Math.min(minX, px);
-            maxX = Math.max(maxX, px + cfg.cells * GRID_CELL_SIZE);
+            maxX = Math.max(maxX, px + cfg.width * GRID_CELL_SIZE);
             minY = Math.min(minY, py);
-            maxY = Math.max(maxY, py + UNIT_HEIGHT);
+            maxY = Math.max(maxY, py + cfg.height * GRID_CELL_SIZE);
         }
+
+        for (const tile of floorTiles) {
+            const px = tile.gridX * GRID_CELL_SIZE;
+            const py = tile.gridY * GRID_CELL_SIZE;
+            minX = Math.min(minX, px);
+            maxX = Math.max(maxX, px + GRID_CELL_SIZE);
+            minY = Math.min(minY, py);
+            maxY = Math.max(maxY, py + GRID_CELL_SIZE);
+        }
+
+        if (!Number.isFinite(minX) || !Number.isFinite(minY)) return;
         const contentW = maxX - minX + 120;
         const contentH = maxY - minY + 120;
         const newZoom = Math.min(vp.clientWidth / contentW, vp.clientHeight / contentH, 2);
@@ -287,7 +342,7 @@ export default function VisualBuilder({
             vp.scrollLeft = (minX - 60) * newZoom;
             vp.scrollTop = (minY - 60) * newZoom;
         });
-    }, [units]);
+    }, [units, tiles, activeFloor]);
 
     /** Undo */
     const handleUndo = useCallback(() => {
@@ -349,7 +404,8 @@ export default function VisualBuilder({
         const toDup = units.filter(u => selectedIds.has(u.id));
         const newUnits: Unit[] = [];
         for (const u of toDup) {
-            const offsetX = u.gridX + unitConfig[u.type].cells + 1;
+            const cfg = getUnitConfig(u.type);
+            const offsetX = u.gridX + cfg.width + 1;
             const unitNumber = `${u.gridY}${Math.floor(offsetX / 2) + 10}`;
             const { data } = await supabase
                 .from('units')
@@ -358,6 +414,9 @@ export default function VisualBuilder({
                     unit_type: u.type,
                     grid_x: offsetX,
                     grid_y: u.gridY,
+                    map_x: offsetX,
+                    map_y: u.gridY,
+                    map_floor: u.floor,
                     unit_number: unitNumber,
                     rent_amount: u.rentAmount ?? null,
                     status: 'available',
@@ -370,6 +429,7 @@ export default function VisualBuilder({
                     type: n.unit_type as UnitType,
                     gridX: n.grid_x,
                     gridY: n.grid_y,
+                    floor: n.map_floor ?? u.floor,
                     status: 'vacant',
                     unitNumber: n.unit_number,
                     rentAmount: n.rent_amount ?? undefined,
@@ -392,7 +452,7 @@ export default function VisualBuilder({
         const targetY = Number(Object.entries(freq).sort((a, b) => b[1] - a[1])[0][0]);
         for (const u of sel) {
             if (u.gridY !== targetY) {
-                await supabase.from('units').update({ grid_y: targetY }).eq('id', u.id);
+                await supabase.from('units').update({ grid_y: targetY, map_y: targetY }).eq('id', u.id);
             }
         }
         setUnits(prev => prev.map(u =>
@@ -412,7 +472,7 @@ export default function VisualBuilder({
         for (let i = 0; i < sel.length; i++) {
             const newX = Math.round(startX + i * gap);
             if (sel[i].gridX !== newX) {
-                await supabase.from('units').update({ grid_x: newX }).eq('id', sel[i].id);
+                await supabase.from('units').update({ grid_x: newX, map_x: newX }).eq('id', sel[i].id);
             }
             sel[i] = { ...sel[i], gridX: newX };
         }
@@ -432,7 +492,7 @@ export default function VisualBuilder({
         const median = floors[Math.floor(floors.length / 2)];
         for (const u of sel) {
             if (u.gridY !== median) {
-                await supabase.from('units').update({ grid_y: median }).eq('id', u.id);
+                await supabase.from('units').update({ grid_y: median, map_y: median }).eq('id', u.id);
             }
         }
         setUnits(prev => prev.map(u =>
@@ -475,33 +535,39 @@ export default function VisualBuilder({
         for (const u of moving) {
             const nextX = u.gridX + dx;
             const nextY = u.gridY + dy;
-            if (nextX < 0 || nextY < 1 || nextY > 10) return;
+            if (nextX < 0 || nextY < 0) return;
             nextPositions.set(u.id, { x: nextX, y: nextY });
         }
 
-        const hasOverlap = (candidate: { id: string; x: number; y: number; width: number }) => {
-            for (const other of stationary) {
-                if (other.gridY !== candidate.y) continue;
-                const otherWidth = unitConfig[other.type].cells;
-                if (candidate.x < other.gridX + otherWidth && candidate.x + candidate.width > other.gridX) {
-                    return true;
-                }
-            }
-            for (const other of moving) {
-                if (other.id === candidate.id) continue;
-                const target = nextPositions.get(other.id)!;
-                if (target.y !== candidate.y) continue;
-                const otherWidth = unitConfig[other.type].cells;
-                if (candidate.x < target.x + otherWidth && candidate.x + candidate.width > target.x) {
-                    return true;
-                }
-            }
-            return false;
-        };
+        const overlaps = (a: { x: number; y: number; w: number; h: number }, b: { x: number; y: number; w: number; h: number }) => (
+            a.x < b.x + b.w && a.x + a.w > b.x && a.y < b.y + b.h && a.y + a.h > b.y
+        );
 
         for (const u of moving) {
             const target = nextPositions.get(u.id)!;
-            if (hasOverlap({ id: u.id, x: target.x, y: target.y, width: unitConfig[u.type].cells })) return;
+            const cfg = getUnitConfig(u.type);
+            const candidate = { x: target.x, y: target.y, w: cfg.width, h: cfg.height };
+
+            for (const other of stationary) {
+                if (other.floor !== u.floor) continue;
+                const otherCfg = getUnitConfig(other.type);
+                const otherRect = { x: other.gridX, y: other.gridY, w: otherCfg.width, h: otherCfg.height };
+                if (overlaps(candidate, otherRect)) return;
+            }
+
+            for (const other of moving) {
+                if (other.id === u.id || other.floor !== u.floor) continue;
+                const targetOther = nextPositions.get(other.id)!;
+                const otherCfg = getUnitConfig(other.type);
+                const otherRect = { x: targetOther.x, y: targetOther.y, w: otherCfg.width, h: otherCfg.height };
+                if (overlaps(candidate, otherRect)) return;
+            }
+
+            for (const tile of tiles) {
+                if (tile.floor !== u.floor) continue;
+                const tileRect = { x: tile.gridX, y: tile.gridY, w: 1, h: 1 };
+                if (overlaps(candidate, tileRect)) return;
+            }
         }
 
         pushUndo();
@@ -512,26 +578,33 @@ export default function VisualBuilder({
         ));
         for (const u of moving) {
             const target = nextPositions.get(u.id)!;
-            await supabase.from('units').update({ grid_x: target.x, grid_y: target.y }).eq('id', u.id);
+            await supabase.from('units').update({
+                grid_x: target.x,
+                grid_y: target.y,
+                map_x: target.x,
+                map_y: target.y
+            }).eq('id', u.id);
         }
         touchUnits(ids);
-    }, [selectedIds, units, pushUndo, supabase, touchUnits]);
+    }, [selectedIds, units, tiles, pushUndo, supabase, touchUnits]);
 
     /** Pan-to for search highlight */
-    const handlePanTo = useCallback((gridX: number, gridY: number) => {
+    const handlePanTo = useCallback((gridX: number, gridY: number, floor: number) => {
         const vp = viewportRef.current;
         if (!vp) return;
+        if (floor !== activeFloor) setActiveFloor(floor);
         const px = gridX * GRID_CELL_SIZE * zoom;
-        const py = (10 - gridY) * UNIT_HEIGHT * zoom;
+        const py = gridY * GRID_CELL_SIZE * zoom;
         vp.scrollLeft = px - vp.clientWidth / 2;
         vp.scrollTop = py - vp.clientHeight / 2;
         // Clear highlight after 3 seconds
         setTimeout(() => setHighlightedUnitId(null), 3000);
-    }, [zoom]);
+    }, [zoom, activeFloor]);
 
     /** Restore saved view */
     const handleRestoreView = useCallback((view: SavedView) => {
         setZoom(view.zoom);
+        if (view.floor) setActiveFloor(view.floor);
         requestAnimationFrame(() => {
             const vp = viewportRef.current;
             if (vp) {
@@ -539,6 +612,86 @@ export default function VisualBuilder({
                 vp.scrollTop = view.scrollY;
             }
         });
+    }, []);
+
+    const toggleCorridorPaint = useCallback(() => {
+        setPaintMode((prev) => (prev === 'corridor' ? 'none' : 'corridor'));
+        setSelectedIds(new Set());
+        setEditingUnit(null);
+    }, []);
+
+    const resolveGridFromPointer = useCallback((clientX: number, clientY: number) => {
+        const vp = viewportRef.current;
+        if (!vp) return null;
+        const rect = vp.getBoundingClientRect();
+        const worldX = (clientX - rect.left + vp.scrollLeft) / zoom;
+        const worldY = (clientY - rect.top + vp.scrollTop) / zoom;
+        const gridX = Math.floor(worldX / GRID_CELL_SIZE);
+        const gridY = Math.floor(worldY / GRID_CELL_SIZE);
+        if (gridX < 0 || gridY < 0) return null;
+        return { gridX, gridY };
+    }, [zoom]);
+
+    const handlePaintCell = useCallback(async (gridX: number, gridY: number, action: 'add' | 'remove') => {
+        const key = `${activeFloor}:${gridX}:${gridY}`;
+        if (paintedCellsRef.current.has(key)) return;
+        paintedCellsRef.current.add(key);
+
+        const overlapsUnit = units.some((unit) => {
+            if (unit.floor !== activeFloor) return false;
+            const cfg = getUnitConfig(unit.type);
+            return gridX >= unit.gridX
+                && gridX < unit.gridX + cfg.width
+                && gridY >= unit.gridY
+                && gridY < unit.gridY + cfg.height;
+        });
+
+        if (overlapsUnit) return;
+
+        if (action === 'add') {
+            const exists = tiles.some((tile) => tile.floor === activeFloor && tile.gridX === gridX && tile.gridY === gridY && tile.type === 'corridor');
+            if (exists) return;
+            const tempId = `temp-${crypto.randomUUID()}`;
+            const optimistic: MapTile = { id: tempId, type: 'corridor', gridX, gridY, floor: activeFloor };
+            setTiles((prev) => [...prev, optimistic]);
+
+            const { data, error } = await supabase
+                .from('unit_map_tiles')
+                .insert([{
+                    property_id: propertyId,
+                    floor: activeFloor,
+                    grid_x: gridX,
+                    grid_y: gridY,
+                    tile_type: 'corridor'
+                }])
+                .select();
+
+            if (error || !data?.[0]) {
+                setTiles((prev) => prev.filter((tile) => tile.id !== tempId));
+                return;
+            }
+
+            setTiles((prev) => prev.map((tile) => tile.id === tempId
+                ? { ...tile, id: data[0].id }
+                : tile
+            ));
+        } else {
+            const target = tiles.find((tile) => tile.floor === activeFloor && tile.gridX === gridX && tile.gridY === gridY && tile.type === 'corridor');
+            if (!target) return;
+            setTiles((prev) => prev.filter((tile) => tile.id !== target.id));
+            await supabase
+                .from('unit_map_tiles')
+                .delete()
+                .eq('id', target.id);
+        }
+    }, [activeFloor, tiles, units, supabase, propertyId]);
+
+    const handlePaintStart = useCallback(() => {
+        paintedCellsRef.current.clear();
+    }, []);
+
+    const handlePaintEnd = useCallback(() => {
+        paintedCellsRef.current.clear();
     }, []);
 
     // ═══ Keyboard Shortcuts ═══
@@ -599,7 +752,7 @@ export default function VisualBuilder({
     // --- Drag Logic ---
 
     const handleDragStart = (event: DragStartEvent) => {
-        if (readOnly) return;
+        if (readOnly || paintMode !== 'none') return;
         const { active } = event;
         setActiveId(active.id as string);
 
@@ -621,7 +774,7 @@ export default function VisualBuilder({
     };
 
     const handleDragMove = (event: DragMoveEvent) => {
-        if (readOnly) return;
+        if (readOnly || paintMode !== 'none') return;
         const { active } = event;
         if (!activeType || !viewportRef.current) return;
 
@@ -635,44 +788,48 @@ export default function VisualBuilder({
         const worldX = (mousePos.current.x - rect.left + scrollLeft) / zoom;
         const worldY = (mousePos.current.y - rect.top + scrollTop) / zoom;
 
-        // Convert to Grid
-        const gridRows = 10; // Assuming fixed height for now
-        // Y is inverted: Bottom is 0 (or 1)
-        // WorldY = (TotalRows - GridY) * UnitHeight
-        // GridY = TotalRows - (WorldY / UnitHeight)
-
+        // Convert to Grid (top-down)
         let targetGridX = Math.floor(worldX / GRID_CELL_SIZE);
-        let targetGridY = Math.floor((gridRows * UNIT_HEIGHT - worldY) / UNIT_HEIGHT) + 1; // +1 to floor adjustment
+        let targetGridY = Math.floor(worldY / GRID_CELL_SIZE);
 
-        // Corrections for drag offset? 
-        // Ideally we want the mouse to hold the center of the unit.
-        // Let's assume the user grabs center. gridX should center around mouse.
-        const widthCells = unitConfig[activeType].cells;
+        const cfg = getUnitConfig(activeType);
+        const widthCells = cfg.width;
+        const heightCells = cfg.height;
         targetGridX -= Math.floor(widthCells / 2);
+        targetGridY -= Math.floor(heightCells / 2);
 
-        // Clamp
         if (targetGridX < 0) targetGridX = 0;
-        if (targetGridY < 1) targetGridY = 1;
-        if (targetGridY > 10) targetGridY = 10;
+        if (targetGridY < 0) targetGridY = 0;
 
-        // Check Collision
+        const overlaps = (a: { x: number; y: number; w: number; h: number }, b: { x: number; y: number; w: number; h: number }) => (
+            a.x < b.x + b.w && a.x + a.w > b.x && a.y < b.y + b.h && a.y + a.h > b.y
+        );
+
+        const candidate = { x: targetGridX, y: targetGridY, w: widthCells, h: heightCells };
+
         const isOccupied = units.some(u => {
-            if (u.id === active.id) return false; // Ignore self
-            if (u.gridY !== targetGridY) return false;
-            const uCells = unitConfig[u.type].cells;
-            return targetGridX < u.gridX + uCells && targetGridX + widthCells > u.gridX;
+            if (u.id === active.id) return false;
+            if (u.floor !== activeFloor) return false;
+            const otherCfg = getUnitConfig(u.type);
+            const other = { x: u.gridX, y: u.gridY, w: otherCfg.width, h: otherCfg.height };
+            return overlaps(candidate, other);
+        }) || tiles.some((tile) => {
+            if (tile.floor !== activeFloor) return false;
+            const other = { x: tile.gridX, y: tile.gridY, w: 1, h: 1 };
+            return overlaps(candidate, other);
         });
 
         setGhostState({
             x: targetGridX,
             y: targetGridY,
             widthCells,
+            heightCells,
             valid: !isOccupied
         });
     };
 
     const handleDragEnd = async (event: DragEndEvent) => {
-        if (readOnly) return;
+        if (readOnly || paintMode !== 'none') return;
         const { active, over } = event;
         setActiveId(null);
         setActiveType(null);
@@ -708,6 +865,7 @@ export default function VisualBuilder({
                 type: unitType,
                 gridX: finalGhost.x,
                 gridY: finalGhost.y,
+                floor: activeFloor,
                 status: 'vacant',
                 unitNumber,
                 rentAmount: unitType === 'studio' ? 1200 : unitType === '1br' ? 1800 : 2500,
@@ -722,6 +880,9 @@ export default function VisualBuilder({
                     unit_type: unitType,
                     grid_x: finalGhost.x,
                     grid_y: finalGhost.y,
+                    map_x: finalGhost.x,
+                    map_y: finalGhost.y,
+                    map_floor: activeFloor,
                     unit_number: unitNumber,
                     rent_amount: unitType === 'studio' ? 1200 : unitType === '1br' ? 1800 : 2500,
                     status: 'available'
@@ -742,6 +903,7 @@ export default function VisualBuilder({
                             type: newUnit.unit_type as UnitType,
                             gridX: newUnit.grid_x,
                             gridY: newUnit.grid_y,
+                            floor: newUnit.map_floor ?? activeFloor,
                             status: 'vacant',
                             unitNumber: newUnit.unit_number,
                             rentAmount: newUnit.rent_amount ?? undefined,
@@ -763,7 +925,9 @@ export default function VisualBuilder({
                 .from('units')
                 .update({
                     grid_x: finalGhost.x,
-                    grid_y: finalGhost.y
+                    grid_y: finalGhost.y,
+                    map_x: finalGhost.x,
+                    map_y: finalGhost.y
                 })
                 .eq('id', active.id);
 
@@ -858,10 +1022,13 @@ export default function VisualBuilder({
             for (let j = i + 1; j < units.length; j++) {
                 const a = units[i];
                 const b = units[j];
-                if (a.gridY !== b.gridY) continue;
-                const aWidth = unitConfig[a.type].cells;
-                const bWidth = unitConfig[b.type].cells;
-                const overlap = a.gridX < b.gridX + bWidth && a.gridX + aWidth > b.gridX;
+                if (a.floor !== b.floor) continue;
+                const aCfg = getUnitConfig(a.type);
+                const bCfg = getUnitConfig(b.type);
+                const overlap = a.gridX < b.gridX + bCfg.width
+                    && a.gridX + aCfg.width > b.gridX
+                    && a.gridY < b.gridY + bCfg.height
+                    && a.gridY + aCfg.height > b.gridY;
                 if (overlap) {
                     addIssue(a.id, `Overlaps with ${b.unitNumber || b.id}`);
                     addIssue(b.id, `Overlaps with ${a.unitNumber || a.id}`);
@@ -872,18 +1039,59 @@ export default function VisualBuilder({
         return issues;
     }, [units]);
 
+    const floorOptions = useMemo(() => {
+        const floors = new Set<number>([1]);
+        units.forEach((unit) => floors.add(unit.floor));
+        tiles.forEach((tile) => floors.add(tile.floor));
+        return Array.from(floors).sort((a, b) => a - b);
+    }, [units, tiles]);
+
+    useEffect(() => {
+        if (!floorOptions.includes(activeFloor)) {
+            setActiveFloor(floorOptions[0] ?? 1);
+        }
+    }, [activeFloor, floorOptions]);
+
+    useEffect(() => {
+        setSelectedIds(new Set());
+        setEditingUnit(null);
+    }, [activeFloor]);
+
+    const floorUnits = useMemo(() => units.filter((unit) => unit.floor === activeFloor), [units, activeFloor]);
+    const floorTiles = useMemo(() => tiles.filter((tile) => tile.floor === activeFloor), [tiles, activeFloor]);
+
     const filteredUnits = useMemo(() => {
         const min = priceFilter.min ? parseFloat(priceFilter.min) : null;
         const max = priceFilter.max ? parseFloat(priceFilter.max) : null;
-        return units.filter((unit) => {
-            if (unit.type === 'stairs') return showStairs && floorFilter.has(unit.gridY);
+        return floorUnits.filter((unit) => {
+            if (unit.type === 'stairs') return showStairs;
             if (!statusFilter.has(unit.status)) return false;
-            if (!floorFilter.has(unit.gridY)) return false;
             if (min !== null && (unit.rentAmount ?? 0) < min) return false;
             if (max !== null && (unit.rentAmount ?? 0) > max) return false;
             return true;
         });
-    }, [units, statusFilter, floorFilter, priceFilter, showStairs]);
+    }, [floorUnits, statusFilter, priceFilter, showStairs]);
+
+    const worldSize = useMemo(() => {
+        let maxX = 0;
+        let maxY = 0;
+
+        for (const unit of floorUnits) {
+            const cfg = getUnitConfig(unit.type);
+            maxX = Math.max(maxX, unit.gridX + cfg.width);
+            maxY = Math.max(maxY, unit.gridY + cfg.height);
+        }
+
+        for (const tile of floorTiles) {
+            maxX = Math.max(maxX, tile.gridX + 1);
+            maxY = Math.max(maxY, tile.gridY + 1);
+        }
+
+        return {
+            width: Math.max(1200, (maxX + 6) * GRID_CELL_SIZE),
+            height: Math.max(800, (maxY + 6) * GRID_CELL_SIZE)
+        };
+    }, [floorUnits, floorTiles]);
 
     const detailUnitId = editingUnit?.id ?? (selectedIds.size === 1 ? Array.from(selectedIds)[0] : null);
     const detailUnit = detailUnitId ? units.find(u => u.id === detailUnitId) : null;
@@ -897,12 +1105,14 @@ export default function VisualBuilder({
         setNoteDraft('');
     }, [detailUnitId]);
 
+    const allowDrag = !readOnly && paintMode === 'none';
+
     return (
         <DndContext
             sensors={sensors}
-            onDragStart={readOnly ? undefined : handleDragStart}
-            onDragMove={readOnly ? undefined : handleDragMove}
-            onDragEnd={readOnly ? undefined : handleDragEnd}
+            onDragStart={allowDrag ? handleDragStart : undefined}
+            onDragMove={allowDrag ? handleDragMove : undefined}
+            onDragEnd={allowDrag ? handleDragEnd : undefined}
         >
             <div style={{ display: 'flex', height: '100%', overflow: 'hidden', background: '#334155', position: 'relative' }}>
 
@@ -918,8 +1128,8 @@ export default function VisualBuilder({
                 >
                     {/* World Container */}
                     <div style={{
-                        width: `${3000 * zoom}px`, // Large scrolling area
-                        height: `${2000 * zoom}px`,
+                        width: `${worldSize.width * zoom}px`,
+                        height: `${worldSize.height * zoom}px`,
                         transform: `scale(${zoom})`,
                         transformOrigin: '0 0',
                         position: 'relative',
@@ -938,6 +1148,7 @@ export default function VisualBuilder({
 
                         <CanvasContent
                             units={filteredUnits}
+                            tiles={floorTiles}
                             ghost={ghostState}
                             activeId={activeId}
                             readOnly={readOnly}
@@ -951,14 +1162,13 @@ export default function VisualBuilder({
                             onToggleSelect={toggleSelect}
                             highlightedUnitId={highlightedUnitId}
                             validationIssues={validationIssues}
+                            paintMode={paintMode}
+                            onPaintCell={handlePaintCell}
+                            onPaintStart={handlePaintStart}
+                            onPaintEnd={handlePaintEnd}
+                            resolveGridFromPointer={resolveGridFromPointer}
                         />
 
-                        {/* Floor Labels */}
-                        {Array.from({ length: 10 }).map((_, i) => (
-                            <div key={i} style={{ position: 'absolute', left: 10, top: (10 - i - 1) * UNIT_HEIGHT + UNIT_HEIGHT / 2, color: 'rgba(255,255,255,0.2)', fontWeight: 900, fontSize: '3rem', pointerEvents: 'none' }}>
-                                {i + 1}
-                            </div>
-                        ))}
                     </div>
                 </div>
 
@@ -989,12 +1199,52 @@ export default function VisualBuilder({
                     {hudVisible ? <Eye size={15} /> : <EyeOff size={15} />}
                 </button>
 
+                {hudVisible && floorOptions.length > 1 && readOnly && (
+                    <div style={{
+                        position: 'absolute',
+                        top: 12,
+                        right: 12,
+                        display: 'flex',
+                        alignItems: 'center',
+                        gap: 8,
+                        background: 'rgba(15, 23, 42, 0.9)',
+                        border: '1px solid #334155',
+                        borderRadius: 10,
+                        padding: '6px 10px',
+                        zIndex: 90
+                    }}>
+                        <span style={{ color: '#94a3b8', fontSize: '0.7rem', fontWeight: 700 }}>Floor</span>
+                        <select
+                            value={activeFloor}
+                            onChange={(event) => setActiveFloor(Number(event.target.value))}
+                            style={{
+                                background: 'rgba(15, 23, 42, 0.85)',
+                                border: '1px solid #334155',
+                                borderRadius: 6,
+                                color: '#e2e8f0',
+                                fontSize: '0.75rem',
+                                fontWeight: 700,
+                                padding: '2px 6px',
+                                cursor: 'pointer'
+                            }}
+                        >
+                            {floorOptions.map((floor) => (
+                                <option key={floor} value={floor}>Floor {floor}</option>
+                            ))}
+                        </select>
+                    </div>
+                )}
+
                 {/* ═══ QoL: Mini-Map ═══ */}
                 {hudVisible && (
                     <MiniMap
                         units={filteredUnits}
+                        tiles={floorTiles}
                         viewportRef={viewportRef}
                         zoom={zoom}
+                        worldWidth={worldSize.width}
+                        worldHeight={worldSize.height}
+                        rightOffset={readOnly ? 12 : 292}
                     />
                 )}
 
@@ -1023,6 +1273,11 @@ export default function VisualBuilder({
                         onCenterVertical={handleCenterVertical}
                         onOpenSearch={() => setSearchOpen(true)}
                         onOpenSavedViews={() => setSavedViewsOpen(p => !p)}
+                        floors={floorOptions}
+                        activeFloor={activeFloor}
+                        onFloorChange={setActiveFloor}
+                        corridorPaintMode={paintMode === 'corridor'}
+                        onToggleCorridorPaint={toggleCorridorPaint}
                     />
                 )}
 
@@ -1043,6 +1298,7 @@ export default function VisualBuilder({
                     open={savedViewsOpen}
                     onClose={() => setSavedViewsOpen(false)}
                     currentZoom={zoom}
+                    currentFloor={activeFloor}
                     viewportRef={viewportRef}
                     onRestoreView={handleRestoreView}
                 />}
@@ -1099,7 +1355,6 @@ export default function VisualBuilder({
                                                 type="button"
                                                 onClick={() => {
                                                     setStatusFilter(new Set());
-                                                    setFloorFilter(new Set());
                                                 }}
                                                 style={{ background: 'transparent', border: '1px solid #334155', color: '#94a3b8', borderRadius: 6, fontSize: '0.65rem', padding: '0.2rem 0.4rem', cursor: 'pointer' }}
                                             >
@@ -1145,31 +1400,6 @@ export default function VisualBuilder({
                                         >
                                             stairs
                                         </button>
-                                    </div>
-                                    <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6 }}>
-                                        {Array.from({ length: 10 }, (_, i) => i + 1).map((floor) => (
-                                            <button
-                                                key={floor}
-                                                type="button"
-                                                onClick={() => setFloorFilter(prev => {
-                                                    const next = new Set(prev);
-                                                    if (next.has(floor)) next.delete(floor); else next.add(floor);
-                                                    return next;
-                                                })}
-                                                style={{
-                                                    width: 26,
-                                                    height: 26,
-                                                    borderRadius: 6,
-                                                    border: `1px solid ${floorFilter.has(floor) ? '#60a5fa' : '#334155'}`,
-                                                    background: floorFilter.has(floor) ? 'rgba(37, 99, 235, 0.25)' : 'rgba(15, 23, 42, 0.6)',
-                                                    color: floorFilter.has(floor) ? '#e2e8f0' : '#64748b',
-                                                    fontSize: '0.65rem',
-                                                    cursor: 'pointer'
-                                                }}
-                                            >
-                                                {floor}
-                                            </button>
-                                        ))}
                                     </div>
                                     <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
                                         <input
@@ -1245,7 +1475,7 @@ export default function VisualBuilder({
 
                             <div style={{ display: 'flex', gap: '0.5rem', pointerEvents: 'auto' }}>
                             <div style={{ padding: '0.5rem 1rem', background: 'rgba(30, 41, 59, 0.8)', color: 'white', borderRadius: '8px', fontSize: '0.8rem', border: '1px solid #475569' }}>
-                                Ctrl + Scroll to Zoom • Arrow keys to Nudge
+                                Ctrl + Scroll to Zoom • Arrow keys to Nudge • Alt + Paint to Erase
                             </div>
                             <div style={{ padding: '0.5rem 1rem', background: '#1e293b', border: '1px solid #475569', color: 'white', borderRadius: '8px', fontWeight: 'bold' }}>
                                 {Math.round(zoom * 100)}%
@@ -1309,6 +1539,8 @@ export default function VisualBuilder({
                                                 <option value="studio">Studio</option>
                                                 <option value="1br">1 Bedroom</option>
                                                 <option value="2br">2 Bedroom</option>
+                                                <option value="3br">3 Bedroom</option>
+                                                <option value="dorm">Dorm</option>
                                             </select>
                                         </div>
 
@@ -1353,7 +1585,7 @@ export default function VisualBuilder({
                                         {/* Grid Position (read-only info) */}
                                         <div style={{ padding: '0.75rem', background: '#0f172a', borderRadius: 8, border: '1px solid #334155' }}>
                                             <div style={{ color: '#64748b', fontSize: '0.7rem', fontWeight: 600, textTransform: 'uppercase', marginBottom: '0.35rem' }}>Position</div>
-                                            <div style={{ color: '#94a3b8', fontSize: '0.8rem' }}>Floor {editingUnit.gridY} &bull; Column {editingUnit.gridX}</div>
+                                            <div style={{ color: '#94a3b8', fontSize: '0.8rem' }}>Floor {editingUnit.floor} &bull; Row {editingUnit.gridY} &bull; Column {editingUnit.gridX}</div>
                                         </div>
 
                                         {detailUnit && (
@@ -1487,6 +1719,8 @@ export default function VisualBuilder({
                                         <SidebarUnit type="studio" label="Studio Apt" icon={<User size={16} />} />
                                         <SidebarUnit type="1br" label="1 Bedroom" icon={<User size={16} />} />
                                         <SidebarUnit type="2br" label="2 Bedroom" icon={<User size={16} />} />
+                                        <SidebarUnit type="3br" label="3 Bedroom" icon={<User size={16} />} />
+                                        <SidebarUnit type="dorm" label="Dorm" icon={<User size={16} />} />
                                         <SidebarUnit type="stairs" label="Stairwell" icon={<ArrowUpFromLine size={16} />} />
                                     </div>
                                 </>
@@ -1507,8 +1741,8 @@ export default function VisualBuilder({
                 <DragOverlay dropAnimation={null} zIndex={9999}>
                     {activeType ? (
                         <div style={{
-                            width: unitConfig[activeType].cells * GRID_CELL_SIZE * zoom, // Match zoom visual
-                            height: UNIT_HEIGHT * zoom,
+                            width: getUnitConfig(activeType).width * GRID_CELL_SIZE * zoom,
+                            height: getUnitConfig(activeType).height * GRID_CELL_SIZE * zoom,
                             background: '#6366f1',
                             opacity: 0.8,
                             borderRadius: '4px',
@@ -1516,7 +1750,7 @@ export default function VisualBuilder({
                             display: 'flex', alignItems: 'center', justifyContent: 'center', color: 'white', fontWeight: 'bold',
                             transformOrigin: 'top left',
                         }}>
-                            {unitConfig[activeType].label}
+                            {getUnitConfig(activeType).label}
                         </div>
                     ) : null}
                 </DragOverlay>,
@@ -1529,6 +1763,7 @@ export default function VisualBuilder({
 
 function CanvasContent({
     units,
+    tiles,
     ghost,
     activeId,
     readOnly,
@@ -1542,8 +1777,14 @@ function CanvasContent({
     onToggleSelect,
     highlightedUnitId,
     validationIssues,
+    paintMode,
+    onPaintCell,
+    onPaintStart,
+    onPaintEnd,
+    resolveGridFromPointer,
 }: {
     units: Unit[];
+    tiles: MapTile[];
     ghost: GhostState | null;
     activeId: string | null;
     readOnly: boolean;
@@ -1557,22 +1798,67 @@ function CanvasContent({
     onToggleSelect?: (unitId: string, additive: boolean) => void;
     highlightedUnitId?: string | null;
     validationIssues?: Map<string, string[]>;
+    paintMode: 'none' | 'corridor';
+    onPaintCell: (gridX: number, gridY: number, action: 'add' | 'remove') => void;
+    onPaintStart: () => void;
+    onPaintEnd: () => void;
+    resolveGridFromPointer: (clientX: number, clientY: number) => { gridX: number; gridY: number } | null;
 }) {
     // ... (inside DraggableUnit function later in file)
     const { setNodeRef } = useDroppable({ id: 'canvas-droppable' });
-    const GRID_ROWS = 10;
+    const isPaintingRef = useRef(false);
+    const paintActionRef = useRef<'add' | 'remove'>('add');
+
+    const handlePointerDown = (event: React.PointerEvent) => {
+        if (readOnly || paintMode === 'none') return;
+        event.preventDefault();
+        event.stopPropagation();
+        isPaintingRef.current = true;
+        paintActionRef.current = event.altKey || event.button === 2 ? 'remove' : 'add';
+        onPaintStart();
+        const grid = resolveGridFromPointer(event.clientX, event.clientY);
+        if (grid) onPaintCell(grid.gridX, grid.gridY, paintActionRef.current);
+    };
+
+    const handlePointerMove = (event: React.PointerEvent) => {
+        if (!isPaintingRef.current || readOnly || paintMode === 'none') return;
+        event.preventDefault();
+        const grid = resolveGridFromPointer(event.clientX, event.clientY);
+        if (grid) onPaintCell(grid.gridX, grid.gridY, paintActionRef.current);
+    };
+
+    const handlePointerUp = () => {
+        if (!isPaintingRef.current) return;
+        isPaintingRef.current = false;
+        onPaintEnd();
+    };
+
+    useEffect(() => {
+        const handleWindowUp = () => handlePointerUp();
+        window.addEventListener('pointerup', handleWindowUp);
+        return () => window.removeEventListener('pointerup', handleWindowUp);
+    }, []);
 
     return (
-        <div ref={setNodeRef} style={{ width: '100%', height: '100%', position: 'relative' }}>
+        <div
+            ref={setNodeRef}
+            style={{ width: '100%', height: '100%', position: 'relative', cursor: paintMode === 'none' ? 'default' : 'crosshair' }}
+            onPointerDown={handlePointerDown}
+            onPointerMove={handlePointerMove}
+            onPointerUp={handlePointerUp}
+            onContextMenu={(event) => {
+                if (paintMode !== 'none') event.preventDefault();
+            }}
+        >
 
             {/* GHOST PREVIEW */}
             {ghost && (
                 <div style={{
                     position: 'absolute',
                     left: ghost.x * GRID_CELL_SIZE,
-                    top: (GRID_ROWS - ghost.y) * UNIT_HEIGHT,
+                    top: ghost.y * GRID_CELL_SIZE,
                     width: ghost.widthCells * GRID_CELL_SIZE,
-                    height: UNIT_HEIGHT,
+                    height: ghost.heightCells * GRID_CELL_SIZE,
                     background: ghost.valid ? 'rgba(34, 197, 94, 0.3)' : 'rgba(239, 68, 68, 0.3)', // Green or Red
                     border: ghost.valid ? '2px dashed #22c55e' : '2px dashed #ef4444',
                     borderRadius: '4px',
@@ -1588,21 +1874,40 @@ function CanvasContent({
                 </div>
             )}
 
+            {/* CORRIDOR TILES */}
+            {tiles.map((tile) => (
+                <div
+                    key={tile.id}
+                    style={{
+                        position: 'absolute',
+                        left: tile.gridX * GRID_CELL_SIZE,
+                        top: tile.gridY * GRID_CELL_SIZE,
+                        width: GRID_CELL_SIZE,
+                        height: GRID_CELL_SIZE,
+                        background: 'linear-gradient(135deg, #1f2937, #0f172a)',
+                        border: '1px solid #334155',
+                        borderRadius: 4,
+                        boxShadow: 'inset 0 0 0 1px rgba(148, 163, 184, 0.08)',
+                        zIndex: 2
+                    }}
+                />
+            ))}
+
             {/* UNITS */}
             {units.map(unit => (
                 <div key={unit.id} style={{ opacity: unit.id === activeId ? 0.3 : 1 }}> {/* Fade out original when dragging */}
                     <DraggableUnit
                         unit={unit}
-                        totalRows={GRID_ROWS}
                         readOnly={readOnly}
                         isSelected={selectedUnitId === unit.id || (selectedIds?.has(unit.id) ?? false)}
                         isHighlighted={highlightedUnitId === unit.id}
                         validationIssues={validationIssues?.get(unit.id) || []}
                         onUnitClick={(id) => {
-                            // Multi-select with Shift held
+                            if (paintMode !== 'none') return;
                             onUnitClick?.(id);
                         }}
                         onShiftClick={(id) => {
+                            if (paintMode !== 'none') return;
                             onToggleSelect?.(id, true);
                         }}
                         onUnitMessageClick={onUnitMessageClick}
@@ -1672,7 +1977,6 @@ function SidebarUnit({ type, label, icon }: { type: UnitType, label: string, ico
 // ... (DraggableUnit props remain)
 function DraggableUnit({
     unit,
-    totalRows,
     readOnly,
     isSelected,
     isHighlighted,
@@ -1685,7 +1989,6 @@ function DraggableUnit({
     currentUserAvatarUrl
 }: {
     unit: Unit;
-    totalRows: number;
     readOnly: boolean;
     isSelected: boolean;
     isHighlighted?: boolean;
@@ -1703,9 +2006,11 @@ function DraggableUnit({
     });
 
     // Pixel math
+    const cfg = getUnitConfig(unit.type);
     const pixelX = unit.gridX * GRID_CELL_SIZE;
-    const pixelY = (totalRows - unit.gridY) * UNIT_HEIGHT;
-    const width = unitConfig[unit.type].cells * GRID_CELL_SIZE;
+    const pixelY = unit.gridY * GRID_CELL_SIZE;
+    const width = cfg.width * GRID_CELL_SIZE;
+    const height = cfg.height * GRID_CELL_SIZE;
 
     // Styles
     const isStairs = unit.type === 'stairs';
@@ -1724,14 +2029,6 @@ function DraggableUnit({
     const bgGradient = isStairs
         ? 'linear-gradient(to right, #334155, #475569, #334155)'
         : `linear-gradient(to bottom, ${statusTone.primary}, ${statusTone.dark})`;
-
-    const lightCone = !isStairs ? (
-        <div style={{
-            position: 'absolute', top: 0, left: '20%', right: '20%', height: '80%',
-            background: `conic-gradient(from 180deg at 50% 0%, ${statusTone.glow} -25deg, transparent 25deg)`,
-            pointerEvents: 'none', mixBlendMode: 'screen'
-        }}></div>
-    ) : null;
 
     const [isHovered, setIsHovered] = useState(false);
     const [isTooltipVisible, setIsTooltipVisible] = useState(false);
@@ -1850,7 +2147,7 @@ function DraggableUnit({
                 top: pixelY,
                 left: pixelX,
                 width,
-                height: UNIT_HEIGHT,
+                height,
                 zIndex: isHovered ? 70 : isSelected ? 65 : 10,
                 cursor: readOnly ? 'pointer' : 'grab',
                 boxSizing: 'border-box',
@@ -1923,150 +2220,120 @@ function DraggableUnit({
 
             {/* Main Container */}
             <div style={{
-                width: '100%', height: '100%',
-                background: '#1e293b',
-                position: 'relative', overflow: 'visible' // visible for popouts if needed
+                width: '100%',
+                height: '100%',
+                background: bgGradient,
+                position: 'relative',
+                overflow: 'hidden',
+                borderRadius: 8,
+                border: '1px solid #334155',
+                boxShadow: 'inset 0 0 18px rgba(15, 23, 42, 0.5)'
             }}>
-
-                    {readOnly && unit.id === currentUserUnitId && (
-                        <div style={{
+                {glowVariant && (
+                    <div
+                        style={{
                             position: 'absolute',
-                            top: '50%',
-                            left: '50%',
-                            transform: 'translate(-50%, -50%)',
-                            width: 42,
-                            height: 42,
-                            borderRadius: '50%',
-                            background: '#6366f1',
-                            color: 'white',
-                            display: 'flex',
-                            alignItems: 'center',
-                            justifyContent: 'center',
-                            fontSize: '0.8rem',
-                            fontWeight: 700,
-                            border: '2px solid rgba(15, 23, 42, 0.9)',
-                            boxShadow: '0 6px 16px rgba(15, 23, 42, 0.45)',
-                            overflow: 'hidden',
-                            zIndex: 40
-                        }}>
-                            {currentUserAvatarUrl ? (
-                                <img
-                                    src={currentUserAvatarUrl}
-                                    alt="Your profile"
-                                    style={{ width: '100%', height: '100%', objectFit: 'cover' }}
-                                />
-                            ) : (
-                                <span>{currentUserInitials || 'ME'}</span>
-                            )}
+                            inset: 0,
+                            pointerEvents: 'none',
+                            boxShadow: glowVariant === 'highlighted'
+                                ? 'inset 0 0 0 2px rgba(34, 197, 94, 0.7)'
+                                : glowVariant === 'selected'
+                                ? 'inset 0 0 0 2px rgba(96, 165, 250, 0.55)'
+                                : 'inset 0 0 0 2px rgba(37, 99, 235, 0.38)',
+                        }}
+                    />
+                )}
+
+                {readOnly && unit.id === currentUserUnitId && (
+                    <div style={{
+                        position: 'absolute',
+                        top: 6,
+                        right: 6,
+                        width: 34,
+                        height: 34,
+                        borderRadius: '50%',
+                        background: '#6366f1',
+                        color: 'white',
+                        display: 'flex',
+                        alignItems: 'center',
+                        justifyContent: 'center',
+                        fontSize: '0.75rem',
+                        fontWeight: 700,
+                        border: '2px solid rgba(15, 23, 42, 0.9)',
+                        boxShadow: '0 6px 16px rgba(15, 23, 42, 0.45)',
+                        overflow: 'hidden',
+                        zIndex: 40
+                    }}>
+                        {currentUserAvatarUrl ? (
+                            <img
+                                src={currentUserAvatarUrl}
+                                alt="Your profile"
+                                style={{ width: '100%', height: '100%', objectFit: 'cover' }}
+                            />
+                        ) : (
+                            <span>{currentUserInitials || 'ME'}</span>
+                        )}
+                    </div>
+                )}
+
+                {unit.status === 'maintenance' && (
+                    <div style={{
+                        position: 'absolute',
+                        inset: 0,
+                        background: 'repeating-linear-gradient(45deg, rgba(163, 75, 75, 0.22), rgba(163, 75, 75, 0.22) 10px, transparent 10px, transparent 20px)',
+                        display: 'flex',
+                        alignItems: 'center',
+                        justifyContent: 'center',
+                        backdropFilter: 'grayscale(100%) blur(1px)'
+                    }}>
+                        <div style={{ background: '#a34b4b', color: 'white', padding: '2px 8px', borderRadius: 4, fontWeight: 700, fontSize: '0.7rem' }}>
+                            MAINTENANCE
                         </div>
-                    )}
+                    </div>
+                )}
 
-                {/* Floor Slab (Structure) */}
+                {unit.status === 'neardue' && (
+                    <div style={{
+                        position: 'absolute',
+                        inset: 0,
+                        border: '1px solid #b86b3a',
+                        boxShadow: 'inset 0 0 20px rgba(184, 107, 58, 0.2)',
+                        pointerEvents: 'none',
+                        animation: 'pulse-red 2s infinite'
+                    }} />
+                )}
+
                 <div style={{
-                    position: 'absolute', bottom: 0, left: 0, right: 0, height: 8,
-                    background: '#334155', borderTop: '1px solid #94a3b8', zIndex: 2
-                }}></div>
-
-                {/* Ceiling Slabs/Light Fixture */}
-                {!isStairs && <div style={{
-                    position: 'absolute', top: 0, left: '40%', width: '20%', height: 6,
-                    background: '#334155', borderRadius: '0 0 4px 4px', zIndex: 2
-                }}></div>}
-
-                {/* Room Interior */}
-                <div style={{
-                    position: 'absolute', inset: '4px', bottom: '8px', // Insert inside walls
-                    background: bgGradient,
-                    border: '2px solid #334155',
-                    borderTop: 'none',
-                    boxShadow: 'inset 0 0 20px rgba(0,0,0,0.8)',
-                    display: 'flex', flexDirection: 'column', justifyContent: 'space-between',
-                    padding: '8px',
-                    overflow: 'hidden'
+                    position: 'absolute',
+                    inset: 0,
+                    padding: 8,
+                    display: 'flex',
+                    flexDirection: 'column',
+                    justifyContent: 'space-between',
+                    gap: 6,
+                    zIndex: 5
                 }}>
-                    {!isStairs && (
-                        <div
-                            style={{
-                                position: 'absolute',
-                                inset: 0,
-                                pointerEvents: 'none',
-                                opacity: 0.7,
-                                mixBlendMode: 'screen',
-                                background:
-                                    `radial-gradient(ellipse at 50% 0%, ${statusTone.glow} 0%, rgba(0, 0, 0, 0) 70%),\
-                                     radial-gradient(ellipse at 50% 100%, rgba(15, 23, 42, 0.2) 0%, rgba(15, 23, 42, 0) 60%)`
-                            }}
-                        />
-                    )}
-                    {glowVariant && (
-                        <div
-                            style={{
-                                position: 'absolute',
-                                inset: 0,
-                                pointerEvents: 'none',
-                                boxShadow: glowVariant === 'highlighted'
-                                    ? 'inset 0 0 0 2px rgba(34, 197, 94, 0.7)'
-                                    : glowVariant === 'selected'
-                                    ? 'inset 0 0 0 2px rgba(96, 165, 250, 0.55)'
-                                    : 'inset 0 0 0 2px rgba(37, 99, 235, 0.38)',
-                                opacity: glowVariant === 'selected' || glowVariant === 'highlighted' ? 1 : 0.95
-                            }}
-                        />
-                    )}
-                    {glowVariant && (
-                        <div
-                            style={{
-                                position: 'absolute',
-                                inset: 0,
-                                pointerEvents: 'none',
-                                opacity: glowVariant === 'selected' || glowVariant === 'highlighted' ? 1 : 0.85,
-                                mixBlendMode: 'screen',
-                                background: glowVariant === 'highlighted'
-                                    ? 'radial-gradient(circle at center, rgba(34, 197, 94, 0) 40%, rgba(34, 197, 94, 0.2) 70%, rgba(34, 197, 94, 0.4) 100%)'
-                                    : glowVariant === 'selected'
-                                    ? 'radial-gradient(circle at center, rgba(96, 165, 250, 0) 44%, rgba(96, 165, 250, 0.18) 72%, rgba(96, 165, 250, 0.32) 100%)'
-                                    : 'radial-gradient(circle at center, rgba(37, 99, 235, 0) 46%, rgba(37, 99, 235, 0.14) 74%, rgba(37, 99, 235, 0.24) 100%)'
-                            }}
-                        />
-                    )}
-                    {/* Ambient Light */}
-                    {lightCone}
-
-                    {/* Back Window */}
-                    {!isStairs && (
+                    <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 6 }}>
                         <div style={{
-                            position: 'absolute', top: '20%', left: '15%', width: '25%', height: '40%',
-                            background: statusTone.dark,
-                            border: '2px solid #334155',
-                            boxShadow: `0 0 10px ${statusTone.glow}`
+                            background: 'rgba(0,0,0,0.45)',
+                            padding: '2px 6px',
+                            borderRadius: 4,
+                            fontSize: '0.6rem',
+                            color: '#e2e8f0',
+                            fontWeight: 700,
+                            border: '1px solid rgba(255,255,255,0.12)'
                         }}>
-                            <div style={{ width: '100%', height: '50%', borderBottom: '1px solid #334155' }}></div>
-                        </div>
-                    )}
-
-                    {/* Furniture Hint (Bed/Table) */}
-                    {!isStairs && (
-                        <div style={{
-                            position: 'absolute', bottom: 2, right: 10, width: 40, height: 12,
-                            background: '#1e293b', borderRadius: '2px 2px 0 0', border: '1px solid #334155'
-                        }}></div>
-                    )}
-
-                    {/* Stairs Pattern */}
-                    {isStairs && <div style={{ position: 'absolute', inset: 0, opacity: 0.3, backgroundImage: 'repeating-linear-gradient(45deg, transparent, transparent 10px, #000 10px, #000 20px)' }}></div>}
-
-                    {/* Top Label + Unit Number */}
-                    <div style={{ display: 'flex', alignItems: 'center', gap: 4, zIndex: 10 }}>
-                        <div style={{
-                            background: 'rgba(0,0,0,0.5)', padding: '2px 6px', borderRadius: 4,
-                            fontSize: '0.6rem', color: '#94a3b8', fontWeight: 600, border: '1px solid rgba(255,255,255,0.1)'
-                        }}>
-                            {unitConfig[unit.type].label.toUpperCase()}
+                            {getUnitConfig(unit.type).label.toUpperCase()}
                         </div>
                         {unit.unitNumber && (
                             <div style={{
-                                background: 'rgba(99, 102, 241, 0.3)', padding: '2px 6px', borderRadius: 4,
-                                fontSize: '0.65rem', color: '#c7d2fe', fontWeight: 700, border: '1px solid rgba(99, 102, 241, 0.4)',
+                                background: 'rgba(99, 102, 241, 0.3)',
+                                padding: '2px 6px',
+                                borderRadius: 4,
+                                fontSize: '0.65rem',
+                                color: '#c7d2fe',
+                                fontWeight: 700,
+                                border: '1px solid rgba(99, 102, 241, 0.4)',
                                 letterSpacing: '0.02em'
                             }}>
                                 #{unit.unitNumber}
@@ -2074,59 +2341,30 @@ function DraggableUnit({
                         )}
                     </div>
 
-                    {/* Tenant / Status / Maintenance */}
+                    <div style={{
+                        flex: 1,
+                        display: 'flex',
+                        alignItems: 'center',
+                        justifyContent: 'center',
+                        textAlign: 'center',
+                        fontSize: '0.75rem',
+                        fontWeight: 600,
+                        color: '#e2e8f0',
+                        textShadow: '0 1px 2px rgba(0,0,0,0.45)'
+                    }}>
+                        {isStairs ? 'STAIRS' : unit.status === 'vacant' ? 'VACANT' : unit.tenantName || 'RESIDENT'}
+                    </div>
+
                     {!isStairs && (
-                        <div style={{ display: 'flex', alignItems: 'center', gap: 6, zIndex: 10 }}>
-                            {/* Maintenance Overlay (Full Box) */}
-                            {unit.status === 'maintenance' && (
-                                <div style={{
-                                    position: 'absolute', inset: 0,
-                                    background: 'repeating-linear-gradient(45deg, rgba(163, 75, 75, 0.22), rgba(163, 75, 75, 0.22) 10px, transparent 10px, transparent 20px)',
-                                    display: 'flex', alignItems: 'center', justifyContent: 'center',
-                                    backdropFilter: 'grayscale(100%) blur(1px)' // Dim the room
-                                }}>
-                                    <div style={{ background: '#a34b4b', color: 'white', padding: '2px 8px', borderRadius: 4, fontWeight: 'bold', fontSize: '0.7rem', display: 'flex', alignItems: 'center', gap: 4, transform: 'rotate(-5deg)', boxShadow: '0 4px 10px rgba(0,0,0,0.5)' }}>
-                                        <div style={{ width: 8, height: 8, background: 'black', borderRadius: '50%' }}></div>
-                                        REPAIR
-                                        <div style={{ width: 8, height: 8, background: 'black', borderRadius: '50%' }}></div>
-                                    </div>
-                                </div>
-                            )}
-
-                            {/* Near Due Overlay (Subtle Red Pulse) */}
-                            {unit.status === 'neardue' && (
-                                <div style={{
-                                    position: 'absolute', inset: 0,
-                                    border: '1px solid #b86b3a',
-                                    boxShadow: 'inset 0 0 20px rgba(184, 107, 58, 0.2)',
-                                    pointerEvents: 'none',
-                                    animation: 'pulse-red 2s infinite'
-                                }}>
-                                    <div style={{ position: 'absolute', top: 4, right: 4, background: '#b86b3a', color: 'white', borderRadius: '50%', width: 16, height: 16, display: 'flex', alignItems: 'center', justifyContent: 'center', fontWeight: 'bold', fontSize: '0.7rem' }}>!</div>
-                                </div>
-                            )}
-
-                            {/* Standard Statuses */}
-                            {unit.status === 'occupied' && (
-                                <div style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
-                                    <User size={14} color="#93a9cc" />
-                                    <span style={{ fontSize: '0.7rem', color: '#e2e8f0', textShadow: '0 1px 2px black' }}>{unit.tenantName}</span>
-                                </div>
-                            )}
-
-                            {unit.status === 'vacant' && (
-                                <span style={{ fontSize: '0.65rem', color: '#b7d9c2', fontStyle: 'italic', background: 'rgba(0,0,0,0.3)', padding: '2px 4px', borderRadius: 4 }}>FOR RENT</span>
-                            )}
-
-                            {/* Near Due Text */}
-                            {unit.status === 'neardue' && (
-                                <div style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
-                                    <User size={14} color="#d8a27a" />
-                                    <span style={{ fontSize: '0.7rem', color: '#e4c0a8', textShadow: '0 1px 2px black' }}>{unit.tenantName} (Late)</span>
-                                </div>
+                        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', fontSize: '0.6rem', color: '#e2e8f0' }}>
+                            <span style={{ opacity: 0.8 }}>{unit.status.toUpperCase()}</span>
+                            {unit.tenantName && unit.tenantName !== 'Resident' && (
+                                <span style={{ opacity: 0.8 }}>{unit.tenantName}</span>
                             )}
                         </div>
                     )}
+                </div>
+            </div>
 
                     {typeof document !== 'undefined' && createPortal(
                         <AnimatePresence>
@@ -2291,13 +2529,6 @@ function DraggableUnit({
                         </AnimatePresence>,
                         document.body
                     )}
-                </div>
-
-                {/* Side Walls (Structure) */}
-                <div style={{ position: 'absolute', top: 0, bottom: 0, left: 0, width: 4, background: '#334155', borderRight: '1px solid #1e293b' }}></div>
-                <div style={{ position: 'absolute', top: 0, bottom: 0, right: 0, width: 4, background: '#334155', borderLeft: '1px solid #1e293b' }}></div>
-
-            </div>
         </div>
     );
 }

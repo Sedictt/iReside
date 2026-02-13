@@ -8,6 +8,7 @@ interface SearchUnit {
     tenantName?: string;
     gridX: number;
     gridY: number;
+    floor: number;
     type: string;
     status: string;
 }
@@ -17,7 +18,7 @@ interface CanvasSearchProps {
     open: boolean;
     onClose: () => void;
     onHighlight: (unitId: string) => void;
-    onPanTo: (gridX: number, gridY: number) => void;
+    onPanTo: (gridX: number, gridY: number, floor: number) => void;
 }
 
 /**
@@ -45,7 +46,7 @@ export default function CanvasSearch({ units, open, onClose, onHighlight, onPanT
 
     const handleSelect = (u: SearchUnit) => {
         onHighlight(u.id);
-        onPanTo(u.gridX, u.gridY);
+        onPanTo(u.gridX, u.gridY, u.floor);
         onClose();
     };
 
@@ -149,7 +150,7 @@ export default function CanvasSearch({ units, open, onClose, onHighlight, onPanT
                                         )}
                                     </div>
                                     <div style={{ fontSize: "0.65rem", color: "#64748b" }}>
-                                        Floor {u.gridY} • Col {u.gridX} • {u.type}
+                                        Floor {u.floor} • Row {u.gridY} • Col {u.gridX} • {u.type}
                                     </div>
                                 </div>
                             </button>

@@ -12,9 +12,20 @@ type UnitRow = {
     unit_type: string;
     grid_x: number;
     grid_y: number;
+    map_x?: number | null;
+    map_y?: number | null;
+    map_floor?: number | null;
     status: string;
     unit_number: string | null;
     rent_amount: number | null;
+};
+
+type TileRow = {
+    id: string;
+    tile_type: string;
+    grid_x: number;
+    grid_y: number;
+    floor: number | null;
 };
 
 type PropertyRow = {
@@ -28,6 +39,7 @@ type PropertyRow = {
 export default function BlueprintContent() {
     const [properties, setProperties] = useState<PropertyRow[]>([]);
     const [selectedProperty, setSelectedProperty] = useState<PropertyRow | null>(null);
+    const [selectedTiles, setSelectedTiles] = useState<TileRow[]>([]);
     const [isLoading, setIsLoading] = useState(true);
     const [isAddingProperty, setIsAddingProperty] = useState(false);
     const [isFullScreen, setIsFullScreen] = useState(false);
@@ -56,6 +68,21 @@ export default function BlueprintContent() {
         });
         return () => cancelAnimationFrame(id);
     }, [fetchProperties]);
+
+    useEffect(() => {
+        if (!selectedProperty) {
+            setSelectedTiles([]);
+            return;
+        }
+        const fetchTiles = async () => {
+            const { data } = await supabase
+                .from('unit_map_tiles')
+                .select('id, tile_type, grid_x, grid_y, floor')
+                .eq('property_id', selectedProperty.id);
+            setSelectedTiles((data as TileRow[]) || []);
+        };
+        void fetchTiles();
+    }, [selectedProperty, supabase]);
 
     async function handleAddProperty(e: React.FormEvent<HTMLFormElement>) {
         e.preventDefault();
@@ -108,6 +135,7 @@ export default function BlueprintContent() {
                     <VisualBuilder
                         propertyId={selectedProperty.id}
                         initialUnits={selectedProperty.units ?? []}
+                        initialTiles={selectedTiles}
                         isFullScreen={isFullScreen}
                         onToggleFullScreen={() => setIsFullScreen((prev) => !prev)}
                     />

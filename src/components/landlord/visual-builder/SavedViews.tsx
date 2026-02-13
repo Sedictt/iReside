@@ -10,6 +10,7 @@ export interface SavedView {
     scrollX: number;
     scrollY: number;
     zoom: number;
+    floor?: number;
 }
 
 interface SavedViewsProps {
@@ -17,6 +18,7 @@ interface SavedViewsProps {
     open: boolean;
     onClose: () => void;
     currentZoom: number;
+    currentFloor: number;
     viewportRef: React.RefObject<HTMLDivElement | null>;
     onRestoreView: (view: SavedView) => void;
 }
@@ -29,6 +31,7 @@ export default function SavedViews({
     open,
     onClose,
     currentZoom,
+    currentFloor,
     viewportRef,
     onRestoreView,
 }: SavedViewsProps) {
@@ -59,6 +62,7 @@ export default function SavedViews({
             scrollX: vp.scrollLeft,
             scrollY: vp.scrollTop,
             zoom: currentZoom,
+            floor: currentFloor,
         };
         persist([...views, view]);
         setNewName("");

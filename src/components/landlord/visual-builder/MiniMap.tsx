@@ -2,15 +2,17 @@
 import React, { useEffect, useRef, useCallback } from "react";
 
 const GRID_CELL_SIZE = 40;
-const FLOOR_HEIGHT_CELLS = 4;
-const UNIT_HEIGHT = FLOOR_HEIGHT_CELLS * GRID_CELL_SIZE;
 
-const unitConfig: Record<string, { cells: number }> = {
-    studio: { cells: 4 },
-    "1br": { cells: 5 },
-    "2br": { cells: 7 },
-    stairs: { cells: 2 },
+const unitConfig: Record<string, { width: number; height: number }> = {
+    studio: { width: 2, height: 2 },
+    "1br": { width: 3, height: 2 },
+    "2br": { width: 4, height: 3 },
+    "3br": { width: 5, height: 3 },
+    dorm: { width: 2, height: 2 },
+    stairs: { width: 2, height: 2 },
 };
+
+const getUnitConfig = (type: string) => unitConfig[type] ?? { width: 3, height: 2 };
 
 interface MiniUnit {
     id: string;
@@ -20,13 +22,21 @@ interface MiniUnit {
     status: string;
 }
 
+interface MiniTile {
+    id: string;
+    type: string;
+    gridX: number;
+    gridY: number;
+}
+
 interface MiniMapProps {
     units: MiniUnit[];
+    tiles?: MiniTile[];
     viewportRef: React.RefObject<HTMLDivElement | null>;
     zoom: number;
     worldWidth?: number;
     worldHeight?: number;
-    totalRows?: number;
+    rightOffset?: number;
 }
 
 const MINI_W = 180;
@@ -37,11 +47,12 @@ const MINI_H = 120;
  */
 export default function MiniMap({
     units,
+    tiles = [],
     viewportRef,
     zoom,
     worldWidth = 3000,
     worldHeight = 2000,
-    totalRows = 10,
+    rightOffset = 292,
 }: MiniMapProps) {
     const canvasRef = useRef<HTMLCanvasElement>(null);
     const isDragging = useRef(false);
@@ -62,18 +73,36 @@ export default function MiniMap({
         // Draw grid lines faintly
         ctx.strokeStyle = "rgba(71, 85, 105, 0.2)";
         ctx.lineWidth = 0.5;
-        for (let r = 0; r <= totalRows; r++) {
-            const y = (totalRows - r) * UNIT_HEIGHT * scaleY;
+        const cols = Math.ceil(worldWidth / GRID_CELL_SIZE);
+        const rows = Math.ceil(worldHeight / GRID_CELL_SIZE);
+        for (let c = 0; c <= cols; c++) {
+            const x = c * GRID_CELL_SIZE * scaleX;
+            ctx.beginPath(); ctx.moveTo(x, 0); ctx.lineTo(x, MINI_H); ctx.stroke();
+        }
+        for (let r = 0; r <= rows; r++) {
+            const y = r * GRID_CELL_SIZE * scaleY;
             ctx.beginPath(); ctx.moveTo(0, y); ctx.lineTo(MINI_W, y); ctx.stroke();
+        }
+
+        // Draw corridor tiles
+        for (const tile of tiles) {
+            const px = tile.gridX * GRID_CELL_SIZE * scaleX;
+            const py = tile.gridY * GRID_CELL_SIZE * scaleY;
+            const size = GRID_CELL_SIZE * scaleX;
+            ctx.fillStyle = "#1f2937";
+            ctx.fillRect(px, py, size, size);
+            ctx.strokeStyle = "#334155";
+            ctx.lineWidth = 0.3;
+            ctx.strokeRect(px, py, size, size);
         }
 
         // Draw units
         for (const u of units) {
-            const cfg = unitConfig[u.type] ?? { cells: 4 };
+            const cfg = getUnitConfig(u.type);
             const px = u.gridX * GRID_CELL_SIZE * scaleX;
-            const py = (totalRows - u.gridY) * UNIT_HEIGHT * scaleY;
-            const pw = cfg.cells * GRID_CELL_SIZE * scaleX;
-            const ph = UNIT_HEIGHT * scaleY;
+            const py = u.gridY * GRID_CELL_SIZE * scaleY;
+            const pw = cfg.width * GRID_CELL_SIZE * scaleX;
+            const ph = cfg.height * GRID_CELL_SIZE * scaleY;
 
             ctx.fillStyle =
                 u.status === "vacant" ? "#3f915f" :
@@ -102,7 +131,7 @@ export default function MiniMap({
             ctx.fillStyle = "rgba(96, 165, 250, 0.08)";
             ctx.fillRect(vx, vy, vw, vh);
         }
-    }, [units, viewportRef, zoom, scaleX, scaleY, totalRows]);
+    }, [units, tiles, viewportRef, zoom, scaleX, scaleY, worldWidth, worldHeight]);
 
     // Redraw on each animation frame-ish (scroll changes, etc.)
     useEffect(() => {
@@ -151,7 +180,7 @@ export default function MiniMap({
             style={{
                 position: "absolute",
                 bottom: 12,
-                right: 292,
+                right: rightOffset,
                 width: MINI_W,
                 height: MINI_H,
                 borderRadius: 10,

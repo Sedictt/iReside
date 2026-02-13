@@ -27,9 +27,20 @@ type UnitRow = {
     unit_type: string;
     grid_x: number;
     grid_y: number;
+    map_x?: number | null;
+    map_y?: number | null;
+    map_floor?: number | null;
     status: string;
     unit_number: string | null;
     leases?: LeaseRow[] | null;
+};
+
+type TileRow = {
+    id: string;
+    tile_type: string;
+    grid_x: number;
+    grid_y: number;
+    floor: number | null;
 };
 
 type PropertySummary = {
@@ -60,6 +71,7 @@ function TenantUnitMapContent() {
     const [units, setUnits] = useState<UnitRow[]>([]);
     const [property, setProperty] = useState<PropertySummary | null>(null);
     const [selectedUnitId, setSelectedUnitId] = useState<string | null>(null);
+    const [tiles, setTiles] = useState<TileRow[]>([]);
     const [isLoading, setIsLoading] = useState(true);
     const [currentUserId, setCurrentUserId] = useState<string | null>(null);
     const [currentUserInitials, setCurrentUserInitials] = useState<string | null>(null);
@@ -145,6 +157,9 @@ function TenantUnitMapContent() {
                 unit_type,
                 grid_x,
                 grid_y,
+                map_x,
+                map_y,
+                map_floor,
                 status,
                 unit_number,
                 leases (
@@ -169,6 +184,9 @@ function TenantUnitMapContent() {
                 unit_type: unit.unit_type,
                 grid_x: unit.grid_x,
                 grid_y: unit.grid_y,
+                map_x: unit.map_x,
+                map_y: unit.map_y,
+                map_floor: unit.map_floor,
                 status: unit.status,
                 unit_number: unit.unit_number,
                 leases: unit.leases || []
@@ -184,6 +202,18 @@ function TenantUnitMapContent() {
                     setCurrentUserUnitId(myUnit.id);
                 }
             }
+        }
+
+        const { data: tileData, error: tileError } = await supabase
+            .from("unit_map_tiles")
+            .select("id, tile_type, grid_x, grid_y, floor")
+            .eq("property_id", activeLease.unit.property.id);
+
+        if (tileError) {
+            console.error("Failed to load unit map tiles:", tileError);
+            setTiles([]);
+        } else {
+            setTiles((tileData as TileRow[]) || []);
         }
 
         setIsLoading(false);
@@ -329,6 +359,7 @@ function TenantUnitMapContent() {
                     <VisualBuilder
                         propertyId={property.id}
                         initialUnits={visualUnits}
+                        initialTiles={tiles}
                         readOnly
                         selectedUnitId={selectedUnitId}
                         onUnitClick={(unitId) => setSelectedUnitId(unitId)}
@@ -363,6 +394,7 @@ function TenantUnitMapContent() {
                     <VisualBuilder
                         propertyId={property.id}
                         initialUnits={visualUnits}
+                        initialTiles={tiles}
                         readOnly
                         selectedUnitId={selectedUnitId}
                         onUnitClick={(unitId) => setSelectedUnitId(unitId)}
